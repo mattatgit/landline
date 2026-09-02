@@ -13,6 +13,7 @@ This is the first native Linux/NixOS port of the integrated Landline + Iroh macO
 - Remote audio playback and volume control.
 - Profile display-name exchange.
 - Direct/relay selection remains Iroh-managed, as on macOS.
+- GitHub Actions compile-checks the client inside the repository's Nix development shell.
 
 Avatar upload/display parity and the final Linux glass treatment are not part of this first compiler/interoperability pass.
 
