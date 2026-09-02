@@ -1,0 +1,13 @@
+# macOS / Xcode
+.DS_Store
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+
+# Rust / Nix
+/target/
+LandlineNix/target/
+result
+.direnv/
+.envrc
