@@ -1,0 +1,40 @@
+name: Unpack Xcode project
+
+on:
+  push:
+    paths:
+      - '.github/workflows/unpack-xcodeproj.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Unpack LandlineMac.xcodeproj
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f LandlineMac.xcodeproj.zip
+          unzip -o LandlineMac.xcodeproj.zip
+          test -f LandlineMac.xcodeproj/project.pbxproj
+          rm -rf __MACOSX
+          find LandlineMac.xcodeproj -name '._*' -delete
+          rm LandlineMac.xcodeproj.zip
+          rm .github/workflows/unpack-xcodeproj.yml
+
+      - name: Commit unpacked project
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Unpack Xcode project"
+          git push origin HEAD:main
