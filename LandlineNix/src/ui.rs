@@ -220,12 +220,12 @@ impl LandlineApp {
 
             if response.clicked() {
                 match symbol {
-                    ControlSymbol::Minimize => ui.send_viewport_cmd(ViewportCommand::Minimized(true)),
+                    ControlSymbol::Minimize => ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true)),
                     ControlSymbol::Maximize => {
                         let maximized = ui.input(|input| input.viewport().maximized.unwrap_or(false));
-                        ui.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
+                        ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!maximized));
                     }
-                    ControlSymbol::Close => ui.send_viewport_cmd(ViewportCommand::Close),
+                    ControlSymbol::Close => ui.ctx().send_viewport_cmd(ViewportCommand::Close),
                 }
             }
         }
@@ -248,7 +248,7 @@ impl LandlineApp {
 
         let title_response = ui.interact(title_rect, Id::new("title-drag-settings"), Sense::click_and_drag());
         if title_response.drag_started_by(PointerButton::Primary) {
-            ui.send_viewport_cmd(ViewportCommand::StartDrag);
+            ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
         }
         if title_response.clicked() {
             self.show_settings = !self.show_settings;
