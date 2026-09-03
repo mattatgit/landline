@@ -48,7 +48,9 @@
 
             buildInputs = runtimeLibs;
 
-            LANDLINE_FONT_DIR = "${landlineFonts}/share/fonts/truetype";
+            # Search the complete font derivation rather than assuming a
+            # particular Nixpkgs share/fonts subdirectory layout.
+            LANDLINE_FONT_DIR = "${landlineFonts}";
 
             postInstall = ''
               mv "$out/bin/landline-nix" "$out/bin/.landline-nix-unwrapped"
@@ -117,7 +119,7 @@
             ];
 
             LD_LIBRARY_PATH = ctx.pkgs.lib.makeLibraryPath ctx.runtimeLibs;
-            LANDLINE_FONT_DIR = "${ctx.landlineFonts}/share/fonts/truetype";
+            LANDLINE_FONT_DIR = "${ctx.landlineFonts}";
             RUST_BACKTRACE = "1";
           };
         });
