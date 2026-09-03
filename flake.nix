@@ -19,6 +19,7 @@
             overlays = [ rust-overlay.overlays.default ];
           };
           rust = pkgs.rust-bin.stable."1.91.0".default;
+          landlineFonts = pkgs.google-fonts.override { fonts = [ "Inter" "Inter Tight" ]; };
           runtimeLibs = with pkgs; [
             alsa-lib
             libGL
@@ -42,9 +43,11 @@
               pkgs.xorg.libXi
               pkgs.xorg.libXrandr
               pkgs.libGL
+              landlineFonts
             ];
 
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtimeLibs;
+            LANDLINE_FONT_DIR = "${landlineFonts}/share/fonts/truetype";
             RUST_BACKTRACE = "1";
           };
         });
