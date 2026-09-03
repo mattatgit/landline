@@ -1,9 +1,12 @@
-use std::{fs, path::PathBuf, sync::Arc, time::{Duration, Instant}};
+use std::{fs, path::{Path, PathBuf}, sync::Arc, time::{Duration, Instant}};
+
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
 use eframe::egui::{
-    self, Align2, Color32, FontData, FontDefinitions, FontFamily, FontId, Id, PointerButton, Pos2, Rect, Sense, Stroke, Vec2,
+    self, Align2, Color32, ColorImage, FontData, FontDefinitions, FontFamily, FontId, Id, PointerButton, Pos2, Rect, Sense, Stroke, TextureHandle, TextureOptions, Vec2,
     ViewportCommand, pos2, vec2,
 };
+use image::imageops::FilterType;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -22,9 +25,11 @@ const VU_ORANGE: Color32 = Color32::from_rgb(255, 150, 1);
 const VU_RED: Color32 = Color32::from_rgb(255, 97, 87);
 const TEXT_SOFT: Color32 = Color32::from_rgb(217, 217, 217);
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredProfile {
     name: String,
+    #[serde(default)]
+    avatar_data: Option<String>,
 }
 
 pub struct LandlineApp {
@@ -44,8 +49,13 @@ pub struct LandlineApp {
     error: Option<String>,
     show_settings: bool,
     show_profile: bool,
+    show_app_menu: bool,
     profile_name: String,
     draft_name: String,
+    profile_avatar_data: Option<String>,
+    draft_avatar_data: Option<String>,
+    profile_avatar_texture: Option<TextureHandle>,
+    draft_avatar_texture: Option<TextureHandle>,
     animation_epoch: Instant,
 }
 
@@ -54,8 +64,13 @@ impl LandlineApp {
         egui_extras::install_image_loaders(&cc.egui_ctx);
         install_fonts(&cc.egui_ctx);
 
-        let profile_name = load_profile_name();
-        let network = network::Handle::spawn(profile_name.clone());
+        let stored_profile = load_profile();
+        let profile_name = normalize_name(&stored_profile.name);
+        let profile_avatar_data = stored_profile.avatar_data.clone();
+        let profile_avatar_texture = profile_avatar_data
+            .as_deref()
+            .and_then(|data| texture_from_avatar_data(&cc.egui_ctx, "profile-avatar", data));
+        let network = network::Handle::spawn(profile_name.clone(), profile_avatar_data.clone());
         let playback = Playback::new().map_err(|error| {
             tracing::warn!(%error, "audio playback unavailable at startup");
             error
@@ -81,8 +96,13 @@ impl LandlineApp {
             error: None,
             show_settings: false,
             show_profile: false,
+            show_app_menu: false,
             profile_name: profile_name.clone(),
             draft_name: profile_name,
+            profile_avatar_data: profile_avatar_data.clone(),
+            draft_avatar_data: profile_avatar_data,
+            profile_avatar_texture: profile_avatar_texture.clone(),
+            draft_avatar_texture: profile_avatar_texture,
             animation_epoch: Instant::now(),
         }
     }
@@ -193,13 +213,30 @@ impl LandlineApp {
 
     fn save_profile(&mut self) {
         let name = normalize_name(&self.draft_name);
+        let avatar_data = self.draft_avatar_data.clone();
         self.profile_name = name.clone();
         self.draft_name = name.clone();
-        if let Err(error) = save_profile_name(&name) {
+        self.profile_avatar_data = avatar_data.clone();
+        self.profile_avatar_texture = self.draft_avatar_texture.clone();
+        if let Err(error) = save_stored_profile(&StoredProfile { name: name.clone(), avatar_data: avatar_data.clone() }) {
             self.error = Some(format!("Could not save profile: {error}"));
         }
-        let _ = self.network.commands.send(Command::SetName(name));
+        let _ = self.network.commands.send(Command::SetProfile { name, avatar_data });
         self.show_profile = false;
+    }
+
+    fn load_avatar_path(&mut self, ctx: &egui::Context, path: &Path) {
+        match fs::read(path) {
+            Ok(bytes) => match prepare_avatar(&bytes) {
+                Ok((encoded, image)) => {
+                    self.draft_avatar_data = Some(encoded);
+                    self.draft_avatar_texture = Some(ctx.load_texture("profile-avatar-draft", image, TextureOptions::LINEAR));
+                    self.error = None;
+                }
+                Err(error) => self.error = Some(format!("Could not load avatar: {error}")),
+            },
+            Err(error) => self.error = Some(format!("Could not load avatar: {error}")),
+        }
     }
 
     fn paint_window_controls(&mut self, ui: &mut egui::Ui, canvas: Rect) {
@@ -246,8 +283,9 @@ impl LandlineApp {
             ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
         }
         if title_response.clicked() {
-            self.show_settings = !self.show_settings;
+            self.show_app_menu = !self.show_app_menu;
             self.show_profile = false;
+            self.show_settings = false;
         }
 
         let profile_rect = design_rect(canvas, 272.0, 24.0, 24.0, 24.0);
@@ -259,8 +297,11 @@ impl LandlineApp {
             .paint_at(ui, icon_rect);
         if profile_response.clicked() {
             self.draft_name = self.profile_name.clone();
+            self.draft_avatar_data = self.profile_avatar_data.clone();
+            self.draft_avatar_texture = self.profile_avatar_texture.clone();
             self.show_profile = true;
             self.show_settings = false;
+            self.show_app_menu = false;
         }
     }
 
@@ -278,7 +319,12 @@ impl LandlineApp {
 
             if index == 0 {
                 painter.circle_filled(center, 24.0, Color32::from_rgb(64, 77, 79));
-                paint_initials(painter, center, &self.profile_name, Color32::WHITE);
+                if let Some(texture) = &self.profile_avatar_texture {
+                    let rect = Rect::from_center_size(center, vec2(48.0, 48.0));
+                    painter.image(texture.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                } else {
+                    paint_initials(painter, center, &self.profile_name, Color32::WHITE);
+                }
                 if self.local_talking {
                     self.paint_talking_badge(painter, center + vec2(20.0, 20.0));
                 }
@@ -401,32 +447,95 @@ impl LandlineApp {
         }
     }
 
+    fn paint_app_menu(&mut self, ui: &mut egui::Ui, canvas: Rect) {
+        let painter = ui.painter();
+        let menu = design_rect(canvas, 104.0, 52.0, 176.0, 80.0);
+        painter.rect_filled(menu, 10.0, Color32::from_rgba_unmultiplied(250, 250, 250, 250));
+        painter.rect_stroke(menu, 10.0, Stroke::new(1.0, Color32::from_gray(205)), egui::StrokeKind::Inside);
+
+        let settings_row = Rect::from_min_size(menu.min + vec2(6.0, 6.0), vec2(164.0, 32.0));
+        let settings_response = ui.interact(settings_row, Id::new("app-menu-settings"), Sense::click());
+        if settings_response.hovered() {
+            painter.rect_filled(settings_row, 7.0, Color32::from_rgb(232, 232, 232));
+        }
+        painter.text(settings_row.min + vec2(10.0, 16.0), Align2::LEFT_CENTER, "Iroh Settings…", FontId::proportional(13.0), Color32::from_rgb(23, 23, 23));
+        if settings_response.clicked() {
+            self.show_settings = true;
+            self.show_profile = false;
+            self.show_app_menu = false;
+        }
+
+        let quit_row = Rect::from_min_size(menu.min + vec2(6.0, 42.0), vec2(164.0, 32.0));
+        let quit_response = ui.interact(quit_row, Id::new("app-menu-quit"), Sense::click());
+        if quit_response.hovered() {
+            painter.rect_filled(quit_row, 7.0, Color32::from_rgb(232, 232, 232));
+        }
+        painter.text(quit_row.min + vec2(10.0, 16.0), Align2::LEFT_CENTER, "Quit Landline", FontId::proportional(13.0), Color32::from_rgb(23, 23, 23));
+        if quit_response.clicked() {
+            ui.ctx().send_viewport_cmd(ViewportCommand::Close);
+        }
+    }
+
     fn paint_profile_sheet(&mut self, ui: &mut egui::Ui, canvas: Rect) {
+        let painter = ui.painter();
+        painter.rect_filled(canvas, 24.0, Color32::from_rgba_unmultiplied(248, 248, 248, 26));
+
         let sheet = design_rect(canvas, 0.0, 88.0, 320.0, 584.0);
-        ui.painter().rect_filled(sheet, 16.0, Color32::from_rgba_unmultiplied(255, 255, 255, 246));
-        ui.allocate_ui_at_rect(sheet.shrink2(vec2(24.0, 20.0)), |ui| {
-            ui.visuals_mut().override_text_color = Some(Color32::from_rgb(23, 23, 23));
-            ui.heading("Edit profile");
-            ui.add_space(22.0);
-            ui.label("Name");
-            ui.add_sized([272.0, 48.0], egui::TextEdit::singleline(&mut self.draft_name).hint_text("Random Caller"));
-            ui.add_space(24.0);
-            ui.label("Avatar");
-            ui.add_space(8.0);
-            let avatar = ui.allocate_response(vec2(272.0, 208.0), Sense::hover());
-            ui.painter().rect_filled(avatar.rect, 16.0, Color32::from_rgb(243, 243, 243));
-            ui.painter().text(avatar.rect.center(), Align2::CENTER_CENTER, "Avatar image support\ncomes next", FontId::proportional(13.0), Color32::from_gray(107));
-            ui.add_space(16.0);
-            if ui.add_sized([272.0, 48.0], egui::Button::new("Update")).clicked() {
-                self.save_profile();
-            }
-        });
+        painter.rect_filled(sheet, 16.0, Color32::from_rgba_unmultiplied(255, 255, 255, 242));
+        painter.text(sheet.min + vec2(24.0, 64.0), Align2::LEFT_BOTTOM, "Edit profile", FontId::proportional(24.0), Color32::from_rgb(23, 23, 23));
 
         let close_rect = Rect::from_min_size(sheet.min + vec2(280.0, 8.0), vec2(32.0, 32.0));
-        if ui.interact(close_rect, Id::new("profile-close"), Sense::click()).clicked() {
+        let close_response = ui.interact(close_rect, Id::new("profile-close"), Sense::click());
+        if close_response.hovered() {
+            painter.rect_filled(close_rect, 10.0, Color32::from_rgb(243, 243, 243));
+        }
+        let cc = close_rect.center();
+        painter.line_segment([cc + vec2(-4.0, -4.0), cc + vec2(4.0, 4.0)], Stroke::new(1.8, Color32::from_rgb(23, 23, 23)));
+        painter.line_segment([cc + vec2(4.0, -4.0), cc + vec2(-4.0, 4.0)], Stroke::new(1.8, Color32::from_rgb(23, 23, 23)));
+        if close_response.clicked() {
             self.show_profile = false;
         }
-        ui.painter().text(close_rect.center(), Align2::CENTER_CENTER, "×", FontId::proportional(20.0), Color32::from_rgb(23, 23, 23));
+
+        painter.text(sheet.min + vec2(24.0, 114.5), Align2::LEFT_CENTER, "Name", FontId::proportional(14.0), Color32::from_rgb(23, 23, 23));
+        let name_rect = Rect::from_min_size(sheet.min + vec2(24.0, 128.0), vec2(272.0, 48.0));
+        painter.rect_filled(name_rect, 16.0, Color32::from_rgb(243, 243, 243));
+        ui.allocate_ui_at_rect(name_rect.shrink2(vec2(16.0, 8.0)), |ui| {
+            ui.visuals_mut().override_text_color = Some(Color32::from_rgb(23, 23, 23));
+            ui.add_sized([240.0, 32.0], egui::TextEdit::singleline(&mut self.draft_name).font(FontId::proportional(16.0)).frame(false).hint_text("Random Caller"));
+        });
+
+        painter.text(sheet.min + vec2(24.0, 218.5), Align2::LEFT_CENTER, "Avatar", FontId::proportional(14.0), Color32::from_rgb(23, 23, 23));
+        let avatar_rect = Rect::from_min_size(sheet.min + vec2(24.0, 232.0), vec2(272.0, 208.0));
+        painter.rect_filled(avatar_rect, 16.0, Color32::from_rgb(243, 243, 243));
+        let avatar_response = ui.interact(avatar_rect, Id::new("profile-avatar-upload"), Sense::click());
+        let avatar_image_rect = Rect::from_center_size(avatar_rect.center(), vec2(144.0, 144.0));
+        if let Some(texture) = &self.draft_avatar_texture {
+            painter.image(texture.id(), avatar_image_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+        } else {
+            painter.circle_filled(avatar_image_rect.center(), 72.0, Color32::from_rgba_unmultiplied(23, 23, 23, 18));
+            let upload = Rect::from_center_size(avatar_image_rect.center(), vec2(24.0, 24.0));
+            painter.rect_stroke(upload.shrink(3.0), 1.0, Stroke::new(1.0, Color32::from_gray(180)), egui::StrokeKind::Inside);
+            painter.line_segment([upload.center() + vec2(0.0, 4.0), upload.center() + vec2(0.0, -5.0)], Stroke::new(1.2, Color32::from_rgb(70, 70, 70)));
+            painter.line_segment([upload.center() + vec2(-3.0, -2.0), upload.center() + vec2(0.0, -5.0)], Stroke::new(1.2, Color32::from_rgb(70, 70, 70)));
+            painter.line_segment([upload.center() + vec2(3.0, -2.0), upload.center() + vec2(0.0, -5.0)], Stroke::new(1.2, Color32::from_rgb(70, 70, 70)));
+        }
+
+        if avatar_response.clicked() {
+            if let Some(path) = rfd::FileDialog::new().add_filter("Image", &["png", "jpg", "jpeg"]).pick_file() {
+                self.load_avatar_path(ui.ctx(), &path);
+            }
+        }
+
+        painter.text(sheet.min + vec2(160.0, 476.0), Align2::CENTER_CENTER, "Click to upload or drop an image to customise", FontId::proportional(12.0), Color32::from_rgb(107, 107, 107));
+        let changed = normalize_name(&self.draft_name) != self.profile_name || self.draft_avatar_data != self.profile_avatar_data;
+        let button_rect = Rect::from_min_size(sheet.min + vec2(24.0, 512.0), vec2(272.0, 48.0));
+        let button_fill = if changed { Color32::from_rgb(23, 23, 23) } else { Color32::from_rgba_unmultiplied(23, 23, 23, 51) };
+        let button_text = if changed { Color32::from_rgb(235, 235, 235) } else { Color32::from_rgb(107, 107, 107) };
+        painter.rect_filled(button_rect, 16.0, button_fill);
+        painter.text(button_rect.center(), Align2::CENTER_CENTER, "Update", FontId::proportional(14.0), button_text);
+        if changed && ui.interact(button_rect, Id::new("profile-update"), Sense::click()).clicked() {
+            self.save_profile();
+        }
     }
 
     fn paint_settings_sheet(&mut self, ui: &mut egui::Ui, canvas: Rect) {
@@ -458,7 +567,7 @@ impl LandlineApp {
                 ui.label(format!("Peer: {}", self.peer_name));
             }
             ui.add_space(18.0);
-            ui.small("Click and drag the LANDLINE wordmark to move the window. Click it without dragging to open or close this panel.");
+            ui.small("Open this panel from LANDLINE > Iroh Settings. Drag the LANDLINE wordmark to move the window.");
         });
 
         let close_rect = Rect::from_min_size(sheet.min + vec2(280.0, 8.0), vec2(32.0, 32.0));
@@ -484,6 +593,12 @@ impl eframe::App for LandlineApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_network();
         self.pump_audio();
+        if self.show_profile {
+            let dropped = ctx.input(|input| input.raw.dropped_files.clone());
+            if let Some(path) = dropped.iter().filter_map(|file| file.path.as_deref()).next() {
+                self.load_avatar_path(ctx, path);
+            }
+        }
         ctx.request_repaint_after(Duration::from_millis(33));
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
@@ -497,6 +612,10 @@ impl eframe::App for LandlineApp {
             self.paint_status(ui, canvas, ptt_hovered, remote_hovered);
             self.paint_volume(ui, canvas);
             self.paint_vu(ui, canvas);
+
+            if self.show_app_menu && !self.show_profile && !self.show_settings {
+                self.paint_app_menu(ui, canvas);
+            }
 
             if self.show_profile {
                 self.paint_profile_sheet(ui, canvas);
@@ -556,18 +675,58 @@ fn profile_path() -> Option<PathBuf> {
     dirs::config_dir().map(|root| root.join("landline").join("profile.json"))
 }
 
-fn load_profile_name() -> String {
-    let Some(path) = profile_path() else { return "Caller".into(); };
+fn load_profile() -> StoredProfile {
+    let fallback = StoredProfile { name: "Caller".into(), avatar_data: None };
+    let Some(path) = profile_path() else { return fallback; };
     fs::read(&path)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<StoredProfile>(&bytes).ok())
-        .map(|profile| normalize_name(&profile.name))
-        .unwrap_or_else(|| "Caller".into())
+        .map(|mut profile| {
+            profile.name = normalize_name(&profile.name);
+            profile
+        })
+        .unwrap_or(fallback)
 }
 
-fn save_profile_name(name: &str) -> anyhow::Result<()> {
+fn save_stored_profile(profile: &StoredProfile) -> anyhow::Result<()> {
     let path = profile_path().ok_or_else(|| anyhow::anyhow!("configuration directory unavailable"))?;
     if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
-    fs::write(path, serde_json::to_vec_pretty(&StoredProfile { name: normalize_name(name) })?)?;
+    fs::write(path, serde_json::to_vec_pretty(profile)?)?;
     Ok(())
+}
+
+fn texture_from_avatar_data(ctx: &egui::Context, name: &str, encoded: &str) -> Option<TextureHandle> {
+    let bytes = BASE64.decode(encoded).ok()?;
+    let (_, image) = prepare_avatar(&bytes).ok()?;
+    Some(ctx.load_texture(name, image, TextureOptions::LINEAR))
+}
+
+fn prepare_avatar(bytes: &[u8]) -> anyhow::Result<(String, ColorImage)> {
+    let decoded = image::load_from_memory(bytes)?;
+    let rgba = decoded.to_rgba8();
+    let side = rgba.width().min(rgba.height());
+    let x = (rgba.width() - side) / 2;
+    let y = (rgba.height() - side) / 2;
+    let cropped = image::imageops::crop_imm(&rgba, x, y, side, side).to_image();
+    let resized = image::imageops::resize(&cropped, 144, 144, FilterType::Lanczos3);
+
+    let rgb = image::DynamicImage::ImageRgba8(resized.clone()).to_rgb8();
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 82)
+        .encode_image(&image::DynamicImage::ImageRgb8(rgb))?;
+
+    let mut circular = resized;
+    let radius = 72.0_f32;
+    let centre = 71.5_f32;
+    for yy in 0..144_u32 {
+        for xx in 0..144_u32 {
+            let dx = xx as f32 - centre;
+            let dy = yy as f32 - centre;
+            if dx * dx + dy * dy > radius * radius {
+                circular.get_pixel_mut(xx, yy).0[3] = 0;
+            }
+        }
+    }
+    let image = ColorImage::from_rgba_unmultiplied([144, 144], circular.as_raw());
+    Ok((BASE64.encode(jpeg), image))
 }

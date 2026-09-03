@@ -18,7 +18,7 @@ pub enum Command {
     BeginTransmit,
     Audio(Vec<u8>),
     EndTransmit,
-    SetName(String),
+    SetProfile { name: String, avatar_data: Option<String> },
     Shutdown,
 }
 
@@ -39,7 +39,7 @@ pub struct Handle {
 }
 
 impl Handle {
-    pub fn spawn(name: String) -> Self {
+    pub fn spawn(name: String, avatar_data: Option<String>) -> Self {
         let (command_tx, command_rx) = tokio_mpsc::unbounded_channel();
         let (event_tx, event_rx) = mpsc::channel();
 
@@ -53,7 +53,7 @@ impl Handle {
 
                 match runtime {
                     Ok(runtime) => {
-                        if let Err(error) = runtime.block_on(run(command_rx, event_tx.clone(), name)) {
+                        if let Err(error) = runtime.block_on(run(command_rx, event_tx.clone(), name, avatar_data)) {
                             let _ = event_tx.send(Event::Error(error.to_string()));
                         }
                     }
@@ -96,6 +96,7 @@ async fn run(
     mut commands: tokio_mpsc::UnboundedReceiver<Command>,
     events: mpsc::Sender<Event>,
     mut local_name: String,
+    mut local_avatar_data: Option<String>,
 ) -> Result<()> {
     let secret = load_or_create_secret()?;
     let endpoint = Endpoint::builder(presets::N0)
@@ -160,6 +161,7 @@ async fn run(
                                     true,
                                     &endpoint_id,
                                     &local_name,
+                                    local_avatar_data.as_deref(),
                                     internal_tx.clone(),
                                     events.clone(),
                                 ).await {
@@ -192,9 +194,10 @@ async fn run(
                     Command::EndTransmit => {
                         send_frame(&session, Kind::PttEnd, &[], &events);
                     }
-                    Command::SetName(name) => {
+                    Command::SetProfile { name, avatar_data } => {
                         local_name = normalize_name(&name);
-                        if let Ok(payload) = hello_payload(&endpoint_id, &local_name) {
+                        local_avatar_data = avatar_data;
+                        if let Ok(payload) = hello_payload(&endpoint_id, &local_name, local_avatar_data.as_deref()) {
                             send_frame(&session, Kind::Hello, &payload, &events);
                         }
                     }
@@ -214,6 +217,7 @@ async fn run(
                             false,
                             &endpoint_id,
                             &local_name,
+                            local_avatar_data.as_deref(),
                             internal_tx.clone(),
                             events.clone(),
                         ).await {
@@ -277,6 +281,7 @@ async fn start_session(
     outgoing: bool,
     endpoint_id: &str,
     local_name: &str,
+    local_avatar_data: Option<&str>,
     internal: tokio_mpsc::UnboundedSender<Internal>,
     events: mpsc::Sender<Event>,
 ) -> Result<Session> {
@@ -286,7 +291,7 @@ async fn start_session(
         connection.accept_bi().await?
     };
 
-    let hello = wire::encode(Kind::Hello, &hello_payload(endpoint_id, local_name)?)?;
+    let hello = wire::encode(Kind::Hello, &hello_payload(endpoint_id, local_name, local_avatar_data)?)?;
     send.write_all(&hello).await?;
 
     let (frame_tx, mut frame_rx) = tokio_mpsc::unbounded_channel::<Vec<u8>>();
@@ -344,12 +349,12 @@ async fn start_session(
     })
 }
 
-fn hello_payload(endpoint_id: &str, name: &str) -> Result<Vec<u8>> {
+fn hello_payload(endpoint_id: &str, name: &str, avatar_data: Option<&str>) -> Result<Vec<u8>> {
     Ok(serde_json::to_vec(&HelloMessage {
         endpoint_id: endpoint_id.to_string(),
         name: normalize_name(name),
-        avatar_kind: "default".into(),
-        avatar_data: None,
+        avatar_kind: if avatar_data.is_some() { "jpeg".into() } else { "default".into() },
+        avatar_data: avatar_data.map(ToOwned::to_owned),
     })?)
 }
 
