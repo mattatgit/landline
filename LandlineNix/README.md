@@ -13,7 +13,7 @@ This is the first native Linux/NixOS port of the integrated Landline + Iroh macO
 - Remote audio playback and volume control.
 - Profile display-name and avatar exchange.
 - Profile sheet mirrors the macOS/Figma 320 × 584 bottom-sheet geometry, including name editing, avatar upload/drop and disabled/enabled Update state.
-- Clicking the LANDLINE title opens a compact app menu; Iroh connection controls now live under **Iroh Settings…** rather than behind the Profile button.
+- Clicking the LANDLINE title opens a compact in-window app menu; Iroh connection controls now live under **Iroh Settings…** rather than behind the Profile button.
 - Direct/relay selection remains Iroh-managed, as on macOS.
 - Exact shared Landline title, profile and PTT artwork is compiled into the Linux client from the repository assets.
 - Inter and Inter Tight are sourced from Nixpkgs at build time and embedded into the executable, so the runtime does not depend on system-installed UI fonts.
