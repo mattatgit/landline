@@ -13,7 +13,9 @@ This is the first native Linux/NixOS port of the integrated Landline + Iroh macO
 - Remote audio playback and volume control.
 - Profile display-name exchange.
 - Direct/relay selection remains Iroh-managed, as on macOS.
-- GitHub Actions compile-checks the client inside the repository's Nix development shell.
+- Exact shared Landline title, profile and PTT artwork is compiled into the Linux client from the repository assets.
+- Inter and Inter Tight are sourced from Nixpkgs at build time and embedded into the executable, so the runtime does not depend on system-installed UI fonts.
+- GitHub Actions builds the release client inside the repository's Nix development shell.
 
 Avatar upload/display parity and the final Linux glass treatment are not part of this first compiler/interoperability pass.
 
@@ -27,7 +29,7 @@ nix develop
 cargo run --manifest-path LandlineNix/Cargo.toml
 ```
 
-The first `nix develop` resolves the pinned Rust toolchain and Linux GUI/audio libraries from the repository's flake.
+The first `nix develop` resolves the pinned Rust toolchain, Linux GUI/audio libraries, and build-time Inter font sources from the repository's flake. Font data is embedded into the compiled executable by `LandlineNix/build.rs`; no system-wide font installation is required to render the Landline UI.
 
 ## Connect to the Mac build
 
