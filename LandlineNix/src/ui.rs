@@ -272,7 +272,6 @@ impl LandlineApp {
     }
 
     fn paint_top_bar(&mut self, ui: &mut egui::Ui, canvas: Rect) {
-        let painter = ui.painter();
         let title_rect = design_rect(canvas, 104.0, 24.0, 152.0, 24.0);
         egui::Image::new(egui::include_image!("../assets/landline_title.svg"))
             .fit_to_exact_size(title_rect.size())
@@ -477,47 +476,46 @@ impl LandlineApp {
     }
 
     fn paint_profile_sheet(&mut self, ui: &mut egui::Ui, canvas: Rect) {
-        let painter = ui.painter();
-        painter.rect_filled(canvas, 24.0, Color32::from_rgba_unmultiplied(248, 248, 248, 26));
+        ui.painter().rect_filled(canvas, 24.0, Color32::from_rgba_unmultiplied(248, 248, 248, 26));
 
         let sheet = design_rect(canvas, 0.0, 88.0, 320.0, 584.0);
-        painter.rect_filled(sheet, 16.0, Color32::from_rgba_unmultiplied(255, 255, 255, 242));
-        painter.text(sheet.min + vec2(24.0, 64.0), Align2::LEFT_BOTTOM, "Edit profile", FontId::proportional(24.0), Color32::from_rgb(23, 23, 23));
+        ui.painter().rect_filled(sheet, 16.0, Color32::from_rgba_unmultiplied(255, 255, 255, 242));
+        ui.painter().text(sheet.min + vec2(24.0, 64.0), Align2::LEFT_BOTTOM, "Edit profile", FontId::proportional(24.0), Color32::from_rgb(23, 23, 23));
 
         let close_rect = Rect::from_min_size(sheet.min + vec2(280.0, 8.0), vec2(32.0, 32.0));
         let close_response = ui.interact(close_rect, Id::new("profile-close"), Sense::click());
         if close_response.hovered() {
-            painter.rect_filled(close_rect, 10.0, Color32::from_rgb(243, 243, 243));
+            ui.painter().rect_filled(close_rect, 10.0, Color32::from_rgb(243, 243, 243));
         }
         let cc = close_rect.center();
-        painter.line_segment([cc + vec2(-4.0, -4.0), cc + vec2(4.0, 4.0)], Stroke::new(1.8, Color32::from_rgb(23, 23, 23)));
-        painter.line_segment([cc + vec2(4.0, -4.0), cc + vec2(-4.0, 4.0)], Stroke::new(1.8, Color32::from_rgb(23, 23, 23)));
+        ui.painter().line_segment([cc + vec2(-4.0, -4.0), cc + vec2(4.0, 4.0)], Stroke::new(1.8, Color32::from_rgb(23, 23, 23)));
+        ui.painter().line_segment([cc + vec2(4.0, -4.0), cc + vec2(-4.0, 4.0)], Stroke::new(1.8, Color32::from_rgb(23, 23, 23)));
         if close_response.clicked() {
             self.show_profile = false;
         }
 
-        painter.text(sheet.min + vec2(24.0, 114.5), Align2::LEFT_CENTER, "Name", FontId::proportional(14.0), Color32::from_rgb(23, 23, 23));
+        ui.painter().text(sheet.min + vec2(24.0, 114.5), Align2::LEFT_CENTER, "Name", FontId::proportional(14.0), Color32::from_rgb(23, 23, 23));
         let name_rect = Rect::from_min_size(sheet.min + vec2(24.0, 128.0), vec2(272.0, 48.0));
-        painter.rect_filled(name_rect, 16.0, Color32::from_rgb(243, 243, 243));
+        ui.painter().rect_filled(name_rect, 16.0, Color32::from_rgb(243, 243, 243));
         ui.allocate_ui_at_rect(name_rect.shrink2(vec2(16.0, 8.0)), |ui| {
             ui.visuals_mut().override_text_color = Some(Color32::from_rgb(23, 23, 23));
             ui.add_sized([240.0, 32.0], egui::TextEdit::singleline(&mut self.draft_name).font(FontId::proportional(16.0)).frame(false).hint_text("Random Caller"));
         });
 
-        painter.text(sheet.min + vec2(24.0, 218.5), Align2::LEFT_CENTER, "Avatar", FontId::proportional(14.0), Color32::from_rgb(23, 23, 23));
+        ui.painter().text(sheet.min + vec2(24.0, 218.5), Align2::LEFT_CENTER, "Avatar", FontId::proportional(14.0), Color32::from_rgb(23, 23, 23));
         let avatar_rect = Rect::from_min_size(sheet.min + vec2(24.0, 232.0), vec2(272.0, 208.0));
-        painter.rect_filled(avatar_rect, 16.0, Color32::from_rgb(243, 243, 243));
+        ui.painter().rect_filled(avatar_rect, 16.0, Color32::from_rgb(243, 243, 243));
         let avatar_response = ui.interact(avatar_rect, Id::new("profile-avatar-upload"), Sense::click());
         let avatar_image_rect = Rect::from_center_size(avatar_rect.center(), vec2(144.0, 144.0));
         if let Some(texture) = &self.draft_avatar_texture {
-            painter.image(texture.id(), avatar_image_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+            ui.painter().image(texture.id(), avatar_image_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
         } else {
-            painter.circle_filled(avatar_image_rect.center(), 72.0, Color32::from_rgba_unmultiplied(23, 23, 23, 18));
+            ui.painter().circle_filled(avatar_image_rect.center(), 72.0, Color32::from_rgba_unmultiplied(23, 23, 23, 18));
             let upload = Rect::from_center_size(avatar_image_rect.center(), vec2(24.0, 24.0));
-            painter.rect_stroke(upload.shrink(3.0), 1.0, Stroke::new(1.0, Color32::from_gray(180)), egui::StrokeKind::Inside);
-            painter.line_segment([upload.center() + vec2(0.0, 4.0), upload.center() + vec2(0.0, -5.0)], Stroke::new(1.2, Color32::from_rgb(70, 70, 70)));
-            painter.line_segment([upload.center() + vec2(-3.0, -2.0), upload.center() + vec2(0.0, -5.0)], Stroke::new(1.2, Color32::from_rgb(70, 70, 70)));
-            painter.line_segment([upload.center() + vec2(3.0, -2.0), upload.center() + vec2(0.0, -5.0)], Stroke::new(1.2, Color32::from_rgb(70, 70, 70)));
+            ui.painter().rect_stroke(upload.shrink(3.0), 1.0, Stroke::new(1.0, Color32::from_gray(180)), egui::StrokeKind::Inside);
+            ui.painter().line_segment([upload.center() + vec2(0.0, 4.0), upload.center() + vec2(0.0, -5.0)], Stroke::new(1.2, Color32::from_rgb(70, 70, 70)));
+            ui.painter().line_segment([upload.center() + vec2(-3.0, -2.0), upload.center() + vec2(0.0, -5.0)], Stroke::new(1.2, Color32::from_rgb(70, 70, 70)));
+            ui.painter().line_segment([upload.center() + vec2(3.0, -2.0), upload.center() + vec2(0.0, -5.0)], Stroke::new(1.2, Color32::from_rgb(70, 70, 70)));
         }
 
         if avatar_response.clicked() {
@@ -526,13 +524,13 @@ impl LandlineApp {
             }
         }
 
-        painter.text(sheet.min + vec2(160.0, 476.0), Align2::CENTER_CENTER, "Click to upload or drop an image to customise", FontId::proportional(12.0), Color32::from_rgb(107, 107, 107));
+        ui.painter().text(sheet.min + vec2(160.0, 476.0), Align2::CENTER_CENTER, "Click to upload or drop an image to customise", FontId::proportional(12.0), Color32::from_rgb(107, 107, 107));
         let changed = normalize_name(&self.draft_name) != self.profile_name || self.draft_avatar_data != self.profile_avatar_data;
         let button_rect = Rect::from_min_size(sheet.min + vec2(24.0, 512.0), vec2(272.0, 48.0));
         let button_fill = if changed { Color32::from_rgb(23, 23, 23) } else { Color32::from_rgba_unmultiplied(23, 23, 23, 51) };
         let button_text = if changed { Color32::from_rgb(235, 235, 235) } else { Color32::from_rgb(107, 107, 107) };
-        painter.rect_filled(button_rect, 16.0, button_fill);
-        painter.text(button_rect.center(), Align2::CENTER_CENTER, "Update", FontId::proportional(14.0), button_text);
+        ui.painter().rect_filled(button_rect, 16.0, button_fill);
+        ui.painter().text(button_rect.center(), Align2::CENTER_CENTER, "Update", FontId::proportional(14.0), button_text);
         if changed && ui.interact(button_rect, Id::new("profile-update"), Sense::click()).clicked() {
             self.save_profile();
         }
