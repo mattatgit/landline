@@ -13,7 +13,7 @@ cpal = "0.15.3"
 dirs = "6"
 eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui_extras = { version = "0.31.1", features = ["svg", "image"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 iroh = "=1.0.2"
 rodio = "0.20.1"
 rfd = { version = "0.15.4", default-features = false, features = ["xdg-portal", "tokio"] }
