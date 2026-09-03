@@ -24,6 +24,7 @@ const VU_GREEN: Color32 = Color32::from_rgb(23, 178, 57);
 const VU_ORANGE: Color32 = Color32::from_rgb(255, 150, 1);
 const VU_RED: Color32 = Color32::from_rgb(255, 97, 87);
 const TEXT_SOFT: Color32 = Color32::from_rgb(217, 217, 217);
+const MAX_AVATAR_FILE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredProfile {
@@ -41,6 +42,8 @@ pub struct LandlineApp {
     connected: bool,
     peer_id: String,
     peer_name: String,
+    peer_avatar_data: Option<String>,
+    peer_avatar_texture: Option<TextureHandle>,
     remote_talking: bool,
     local_talking: bool,
     ptt_was_down: bool,
@@ -56,11 +59,13 @@ pub struct LandlineApp {
     draft_avatar_data: Option<String>,
     profile_avatar_texture: Option<TextureHandle>,
     draft_avatar_texture: Option<TextureHandle>,
+    avatar_picker_rx: Option<std::sync::mpsc::Receiver<Result<Option<PathBuf>, String>>>,
     animation_epoch: Instant,
 }
 
 impl LandlineApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        cc.egui_ctx.set_visuals(egui::Visuals::light());
         egui_extras::install_image_loaders(&cc.egui_ctx);
         install_fonts(&cc.egui_ctx);
 
@@ -88,6 +93,8 @@ impl LandlineApp {
             connected: false,
             peer_id: String::new(),
             peer_name: String::new(),
+            peer_avatar_data: None,
+            peer_avatar_texture: None,
             remote_talking: false,
             local_talking: false,
             ptt_was_down: false,
@@ -103,11 +110,12 @@ impl LandlineApp {
             draft_avatar_data: profile_avatar_data,
             profile_avatar_texture: profile_avatar_texture.clone(),
             draft_avatar_texture: profile_avatar_texture,
+            avatar_picker_rx: None,
             animation_epoch: Instant::now(),
         }
     }
 
-    fn poll_network(&mut self) {
+    fn poll_network(&mut self, ctx: &egui::Context) {
         while let Ok(event) = self.network.events.try_recv() {
             match event {
                 Event::EndpointReady(id) => self.endpoint_id = id,
@@ -120,11 +128,17 @@ impl LandlineApp {
                     self.remote_talking = false;
                     self.peer_id.clear();
                     self.peer_name.clear();
+                    self.peer_avatar_data = None;
+                    self.peer_avatar_texture = None;
                     self.stop_transmit();
                 }
-                Event::Peer { id, name } => {
+                Event::Peer { id, name, avatar_data } => {
                     self.peer_id = id;
                     self.peer_name = name;
+                    self.peer_avatar_data = avatar_data;
+                    self.peer_avatar_texture = self.peer_avatar_data
+                        .as_deref()
+                        .and_then(|data| texture_from_avatar_data(ctx, "peer-avatar", data));
                 }
                 Event::RemoteTransmit(active) => self.remote_talking = active,
                 Event::RemoteAudio(packet) => {
@@ -227,15 +241,62 @@ impl LandlineApp {
 
     fn load_avatar_path(&mut self, ctx: &egui::Context, path: &Path) {
         match fs::read(path) {
-            Ok(bytes) => match prepare_avatar(&bytes) {
-                Ok((encoded, image)) => {
-                    self.draft_avatar_data = Some(encoded);
-                    self.draft_avatar_texture = Some(ctx.load_texture("profile-avatar-draft", image, TextureOptions::LINEAR));
-                    self.error = None;
+            Ok(bytes) => {
+                if bytes.len() > MAX_AVATAR_FILE_BYTES {
+                    self.error = Some("Could not load avatar: image file is larger than 16 MB".into());
+                    return;
                 }
-                Err(error) => self.error = Some(format!("Could not load avatar: {error}")),
-            },
+                match prepare_avatar(&bytes) {
+                    Ok((encoded, image)) => {
+                        self.draft_avatar_data = Some(encoded);
+                        self.draft_avatar_texture = Some(ctx.load_texture("profile-avatar-draft", image, TextureOptions::LINEAR));
+                        self.error = None;
+                    }
+                    Err(error) => self.error = Some(format!("Could not load avatar: {error}")),
+                }
+            }
             Err(error) => self.error = Some(format!("Could not load avatar: {error}")),
+        }
+    }
+
+    fn begin_avatar_picker(&mut self) {
+        if self.avatar_picker_rx.is_some() {
+            return;
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        match std::thread::Builder::new()
+            .name("landline-avatar-picker".into())
+            .spawn(move || {
+                let result = std::panic::catch_unwind(|| {
+                    rfd::FileDialog::new()
+                        .add_filter("Image", &["png", "jpg", "jpeg"])
+                        .pick_file()
+                })
+                .map_err(|_| "The system image picker failed. You can also drag a PNG or JPEG onto the avatar area.".to_string());
+                let _ = tx.send(result);
+            }) {
+            Ok(_) => self.avatar_picker_rx = Some(rx),
+            Err(error) => self.error = Some(format!("Could not open image picker: {error}")),
+        }
+    }
+
+    fn poll_avatar_picker(&mut self, ctx: &egui::Context) {
+        let result = self.avatar_picker_rx.as_ref().and_then(|receiver| {
+            match receiver.try_recv() {
+                Ok(result) => Some(result),
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(Err("The system image picker closed unexpectedly. You can also drag a PNG or JPEG onto the avatar area.".into())),
+            }
+        });
+
+        if let Some(result) = result {
+            self.avatar_picker_rx = None;
+            match result {
+                Ok(Some(path)) => self.load_avatar_path(ctx, &path),
+                Ok(None) => {}
+                Err(error) => self.error = Some(error),
+            }
         }
     }
 
@@ -331,7 +392,11 @@ impl LandlineApp {
                 let response = ui.interact(avatar_rect, Id::new("remote-avatar"), Sense::hover());
                 remote_hovered = response.hovered();
                 painter.circle_filled(center, 24.0, Color32::from_rgb(64, 77, 79));
-                paint_initials(painter, center, self.remote_display_name(), Color32::WHITE);
+                if let Some(texture) = &self.peer_avatar_texture {
+                    painter.image(texture.id(), avatar_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                } else {
+                    paint_initials(painter, center, self.remote_display_name(), Color32::WHITE);
+                }
                 if self.remote_talking && !self.local_talking {
                     self.paint_talking_badge(painter, center + vec2(20.0, 20.0));
                 }
@@ -479,6 +544,7 @@ impl LandlineApp {
         ui.painter().rect_filled(canvas, 24.0, Color32::from_rgba_unmultiplied(248, 248, 248, 26));
 
         let sheet = design_rect(canvas, 0.0, 88.0, 320.0, 584.0);
+        paint_sheet_shadow(ui.painter(), sheet);
         ui.painter().rect_filled(sheet, 16.0, Color32::from_rgba_unmultiplied(255, 255, 255, 242));
         ui.painter().text(sheet.min + vec2(24.0, 64.0), Align2::LEFT_BOTTOM, "Edit profile", FontId::proportional(24.0), Color32::from_rgb(23, 23, 23));
 
@@ -519,12 +585,15 @@ impl LandlineApp {
         }
 
         if avatar_response.clicked() {
-            if let Some(path) = rfd::FileDialog::new().add_filter("Image", &["png", "jpg", "jpeg"]).pick_file() {
-                self.load_avatar_path(ui.ctx(), &path);
-            }
+            self.begin_avatar_picker();
         }
 
-        ui.painter().text(sheet.min + vec2(160.0, 476.0), Align2::CENTER_CENTER, "Click to upload or drop an image to customise", FontId::proportional(12.0), Color32::from_rgb(107, 107, 107));
+        let upload_help = if self.avatar_picker_rx.is_some() {
+            "Choose an image in the system picker…"
+        } else {
+            "Click to upload or drop an image to customise"
+        };
+        ui.painter().text(sheet.min + vec2(160.0, 476.0), Align2::CENTER_CENTER, upload_help, FontId::proportional(12.0), Color32::from_rgb(107, 107, 107));
         let changed = normalize_name(&self.draft_name) != self.profile_name || self.draft_avatar_data != self.profile_avatar_data;
         let button_rect = Rect::from_min_size(sheet.min + vec2(24.0, 512.0), vec2(272.0, 48.0));
         let button_fill = if changed { Color32::from_rgb(23, 23, 23) } else { Color32::from_rgba_unmultiplied(23, 23, 23, 51) };
@@ -538,6 +607,7 @@ impl LandlineApp {
 
     fn paint_settings_sheet(&mut self, ui: &mut egui::Ui, canvas: Rect) {
         let sheet = design_rect(canvas, 0.0, 88.0, 320.0, 584.0);
+        paint_sheet_shadow(ui.painter(), sheet);
         ui.painter().rect_filled(sheet, 16.0, Color32::from_rgba_unmultiplied(255, 255, 255, 246));
         ui.allocate_ui_at_rect(sheet.shrink2(vec2(24.0, 20.0)), |ui| {
             ui.visuals_mut().override_text_color = Some(Color32::from_rgb(23, 23, 23));
@@ -589,7 +659,8 @@ impl eframe::App for LandlineApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.poll_network();
+        self.poll_network(ctx);
+        self.poll_avatar_picker(ctx);
         self.pump_audio();
         if self.show_profile {
             let dropped = ctx.input(|input| input.raw.dropped_files.clone());
@@ -602,7 +673,7 @@ impl eframe::App for LandlineApp {
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             let available = ui.max_rect();
             let canvas = Rect::from_center_size(available.center(), DESIGN_SIZE);
-            ui.painter().rect_filled(canvas, 24.0, Color32::from_rgba_unmultiplied(171, 171, 171, 205));
+            ui.painter().rect_filled(canvas, 24.0, Color32::from_rgb(171, 171, 171));
 
             self.paint_window_controls(ui, canvas);
             self.paint_top_bar(ui, canvas);
@@ -662,6 +733,19 @@ fn paint_initials(painter: &egui::Painter, center: Pos2, name: &str, color: Colo
 
 fn design_rect(canvas: Rect, x: f32, y: f32, width: f32, height: f32) -> Rect {
     Rect::from_min_size(canvas.min + vec2(x, y), vec2(width, height))
+}
+
+fn paint_sheet_shadow(painter: &egui::Painter, sheet: Rect) {
+    painter.rect_filled(
+        sheet.expand(14.0).translate(vec2(0.0, 6.0)),
+        24.0,
+        Color32::from_black_alpha(14),
+    );
+    painter.rect_filled(
+        sheet.expand(7.0).translate(vec2(0.0, 3.0)),
+        20.0,
+        Color32::from_black_alpha(24),
+    );
 }
 
 fn normalize_name(name: &str) -> String {
