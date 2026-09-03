@@ -72,23 +72,19 @@ Current implementation:
 - the Linux Profile sheet now uses the macOS/Figma 320 × 584 / y=88 geometry, name/avatar hierarchy and disabled/enabled Update semantics.
 - Nix flake and locked dependency set.
 
-Validation completed before the latest Profile/Settings parity pass:
+Validation completed:
 
 - `cargo check` succeeds inside `nix develop`.
 - optimized release builds succeed in GitHub Actions inside the Nix development shell.
 - the app launches on a real NixOS desktop.
 - the shared SVG/profile artwork and embedded fonts were integrated after the first Nix screenshot exposed fallback rendering.
 - real macOS ↔ NixOS connection and two-way PTT audio are proven working.
+- the Profile/Settings parity source compiles and links successfully as a full optimized Nix release build; CI run 12 completed successfully after correcting the profile-sheet borrow-checker issue.
+- dependency locks were refreshed after the successful parity build; current `linux-nix` head is the resulting locked build state.
 
-Latest validation state:
+Still to validate on the real NixOS desktop after the Profile/Settings parity build:
 
-- the Profile/Settings parity source is committed on `linux-nix`;
-- its full Nix release-build validation is being rerun after fixing a Rust UI borrow-checker issue found by CI;
-- it still needs a real NixOS visual/runtime check after that build passes.
-
-Remaining parity/runtime work includes:
-
-- verify the new Linux Profile sheet, image picker/drop behavior and app-menu routing on the real NixOS desktop;
+- verify the new Linux Profile sheet, image picker/drop behavior and app-menu routing;
 - verify Linux-sent profile avatars appear correctly to macOS peers;
 - implement/display received remote avatars on Linux if still missing;
 - investigate the occasional start-of-PTT crackle;
@@ -138,7 +134,7 @@ GitHub is the durable implementation/project record. Do not return to ZIP-based 
 
 ## Current next step
 
-**Finish release validation of the Profile/Settings parity build, then run it on the real NixOS machine and compare it directly with the macOS Profile sheet.**
+**Run the green Profile/Settings parity build on the real NixOS machine and compare it directly with the macOS Profile sheet.**
 
 Verify, in order:
 
