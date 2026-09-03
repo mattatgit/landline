@@ -59,23 +59,49 @@ Status text should use a consistent Medium-weight treatment. Do not selectively 
 
 ## Profile control
 
-The top-right profile control uses a whole-button hover scale. The intended hover treatment applies to the complete 24 px control rather than scaling only the inner profile glyph. A 105% scale was chosen to make the hover state visible.
+The top-right profile control is reserved for the user's profile on every platform. It must not be repurposed as a networking/settings control.
+
+The control uses a whole-button hover scale. The intended hover treatment applies to the complete 24 px control rather than scaling only the inner profile glyph. A 105% scale was chosen to make the hover state visible.
 
 ## Profile sheet
 
-Current macOS sheet behavior:
+The macOS Profile sheet is the cross-platform visual/interaction baseline:
 
 - 320 × 584 sheet
 - open position begins at y 88
 - rounded white surface at approximately 95% opacity
-- main interface beneath is blurred while the sheet remains crisp
-- additional subtle light veil sits above the blurred main interface
+- headline at x 24 with 24 pt Inter Tight treatment
+- Name label at y 106 and 272 × 48 field at y 128
+- Avatar label at y 210 and 272 × 208 avatar area at y 232
+- upload/drop helper copy below the avatar area
+- 272 × 48 action button at y 512
+- action button is disabled when an existing profile has no changes
+- main interface beneath is softened/blurred while the sheet remains crisp
+- additional subtle light veil sits above the softened main interface
 - tapping exposed backdrop closes the sheet
-- sheet animates vertically from below the 672 px window
+- sheet animates vertically from below the 672 px window where the platform implementation supports it
 
-The current SwiftUI implementation uses a 25 pt blur and an ease-out sheet transition.
+The current SwiftUI implementation uses a 25 pt blur and an ease-out sheet transition. Linux should preserve the same sheet geometry, hierarchy, typography, field/avatar/button proportions and enabled/disabled semantics even where compositor-specific backdrop blur cannot yet match AppKit exactly.
 
-Before an avatar has been uploaded, the avatar-style area should retain the designed placeholder treatment rather than appearing empty.
+Profile image behavior should converge across platforms:
+
+- clicking the avatar area opens image selection;
+- dropping a supported image onto the avatar area/sheet is accepted where the platform supports file drops;
+- the image is centre-cropped for the circular avatar presentation;
+- the saved avatar persists and is reflected in the local 12-o'clock dial position;
+- profile changes are exchanged with connected peers through the Landline profile/hello protocol.
+
+Before an avatar has been uploaded, the avatar area should retain the designed placeholder treatment rather than appearing empty.
+
+## Settings and app-menu routing
+
+Profile and networking settings are separate concepts.
+
+On macOS, Iroh diagnostics/connection controls live in the application's Settings scene and are reached through the normal macOS app menu.
+
+On the custom undecorated Linux/NixOS client, the LANDLINE title acts as the in-window app-menu affordance. That menu should contain **Iroh Settings…** (and other app-level commands such as Quit as appropriate). Selecting **Iroh Settings…** opens the networking/diagnostic sheet. The top-right Profile button always opens Profile.
+
+This Linux menu is a platform adaptation of the macOS app-menu separation; it should not change the main 320 × 672 composition.
 
 ## Window glass
 
