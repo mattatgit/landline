@@ -27,7 +27,7 @@ pub enum Event {
     EndpointReady(String),
     Connected,
     Disconnected,
-    Peer { id: String, name: String },
+    Peer { id: String, name: String, avatar_data: Option<String> },
     RemoteTransmit(bool),
     RemoteAudio(Vec<u8>),
     Error(String),
@@ -308,9 +308,15 @@ async fn start_session(
                         match frame.kind {
                             Kind::Hello => {
                                 if let Ok(hello) = serde_json::from_slice::<HelloMessage>(&frame.payload) {
+                                    let avatar_data = if hello.avatar_kind == "jpeg" {
+                                        hello.avatar_data
+                                    } else {
+                                        None
+                                    };
                                     let _ = events.send(Event::Peer {
                                         id: hello.endpoint_id,
                                         name: normalize_name(&hello.name),
+                                        avatar_data,
                                     });
                                 }
                             }
