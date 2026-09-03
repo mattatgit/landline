@@ -2,7 +2,7 @@
 
 This file is the concise continuity record for active Landline work. Update it whenever a meaningful milestone, technical decision, known issue, working baseline or next step changes.
 
-Last consolidated: 2026-09-02.
+Last consolidated: 2026-09-03.
 
 ## Current working baseline
 
@@ -53,17 +53,25 @@ Current implementation:
 - volume control.
 - temporary Iroh connection panel opened from the LANDLINE wordmark.
 - Nix flake and locked dependency set.
+- shared macOS/Figma artwork for the LANDLINE title, profile button and PTT mic states is now compiled into the Linux client.
+- Inter and Inter Tight are provided by Nixpkgs at build time and embedded into the executable, so UI typography does not depend on fonts installed on the host desktop.
 
 Validation completed:
 
 - `cargo check` succeeds inside `nix develop`.
 - a full optimized release binary build succeeds in GitHub Actions inside the Nix development shell.
+- the first real NixOS launch was completed and the 320 × 672 app rendered on a NixOS desktop.
+- that first screenshot exposed four fidelity issues: missing PTT/profile artwork, missing LANDLINE title artwork, incorrect volume-number placement, and fallback/system typography.
+- a follow-up fidelity pass replaced the approximated title/PTT/profile graphics with the shared supplied assets, corrected the volume-number right edge, and embedded Inter/Inter Tight into the Linux executable.
+- the follow-up optimized release build also succeeds in GitHub Actions.
 
-Not yet validated on a real NixOS desktop:
+Still to validate on a real NixOS desktop after the fidelity rebuild:
 
-- Wayland/X11 runtime behavior.
-- compositor-specific window behavior and visual fidelity.
-- microphone/audio-device behavior and permissions.
+- confirm the supplied title/PTT/profile artwork now renders correctly;
+- confirm Inter/Inter Tight render correctly without host font installation;
+- confirm corrected volume-number placement;
+- Wayland/X11 and compositor-specific window-control behavior;
+- microphone/audio-device behavior and permissions;
 - Mac ↔ NixOS connection and two-way audio.
 
 Intentional first-port gaps:
@@ -114,18 +122,21 @@ GitHub is the durable implementation/project record. Do not return to ZIP-based 
 
 ## Current next step
 
-**Run the `linux-nix` client on a real NixOS machine and perform the first Mac ↔ NixOS interoperability test.**
+**Re-run the updated `linux-nix` client on the real NixOS machine, confirm the visual-fidelity fixes, then perform the first Mac ↔ NixOS interoperability test.**
 
 Test, in order:
 
-1. clone/switch to `linux-nix` and launch via the Nix development shell;
-2. confirm the 320 × 672 window renders and the custom Linux window controls behave correctly;
-3. confirm endpoint identity appears and remains stable across relaunch;
-4. connect Mac and NixOS clients by endpoint ID;
-5. verify profile/name exchange;
-6. verify PTT and two-way audio;
-7. verify volume behavior;
-8. note whether Iroh uses a direct or relay path where diagnostics make this visible;
-9. record compositor/audio-device-specific issues before doing visual-polish work.
+1. pull/switch to the latest `linux-nix` and launch via the Nix development shell;
+2. confirm the LANDLINE title artwork, profile artwork and PTT muted/on SVGs render;
+3. confirm Inter/Inter Tight typography renders without installing fonts on the host;
+4. confirm the volume numeric display is correctly aligned;
+5. confirm the custom Linux window controls behave correctly;
+6. confirm endpoint identity appears and remains stable across relaunch;
+7. connect Mac and NixOS clients by endpoint ID;
+8. verify profile/name exchange;
+9. verify PTT and two-way audio;
+10. verify volume behavior;
+11. note whether Iroh uses a direct or relay path where diagnostics make this visible;
+12. record compositor/audio-device-specific issues before doing further visual-polish work.
 
 After that test, update this file with the runtime results and decide whether the next priority is interoperability fixes, Linux visual parity, or moving beyond one-to-one transport.
