@@ -1,7 +1,7 @@
-use std::{fs, path::PathBuf, time::{Duration, Instant}};
+use std::{fs, path::PathBuf, sync::Arc, time::{Duration, Instant}};
 
 use eframe::egui::{
-    self, Align2, Color32, FontId, Id, PointerButton, Pos2, Rect, Sense, Stroke, Vec2,
+    self, Align2, Color32, FontData, FontDefinitions, FontFamily, FontId, Id, PointerButton, Pos2, Rect, Sense, Stroke, Vec2,
     ViewportCommand, pos2, vec2,
 };
 use serde::{Deserialize, Serialize};
@@ -50,7 +50,10 @@ pub struct LandlineApp {
 }
 
 impl LandlineApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        egui_extras::install_image_loaders(&cc.egui_ctx);
+        install_fonts(&cc.egui_ctx);
+
         let profile_name = load_profile_name();
         let network = network::Handle::spawn(profile_name.clone());
         let playback = Playback::new().map_err(|error| {
@@ -234,17 +237,9 @@ impl LandlineApp {
     fn paint_top_bar(&mut self, ui: &mut egui::Ui, canvas: Rect) {
         let painter = ui.painter();
         let title_rect = design_rect(canvas, 104.0, 24.0, 152.0, 24.0);
-        painter.text(
-            title_rect.center(),
-            Align2::CENTER_CENTER,
-            "LANDLINE",
-            FontId::proportional(14.0),
-            Color32::WHITE,
-        );
-        painter.line_segment(
-            [pos2(title_rect.left() + 8.0, title_rect.bottom() - 3.0), pos2(title_rect.right() - 8.0, title_rect.bottom() - 3.0)],
-            Stroke::new(1.0, Color32::from_gray(145)),
-        );
+        egui::Image::new(egui::include_image!("../assets/landline_title.svg"))
+            .fit_to_exact_size(title_rect.size())
+            .paint_at(ui, title_rect);
 
         let title_response = ui.interact(title_rect, Id::new("title-drag-settings"), Sense::click_and_drag());
         if title_response.drag_started_by(PointerButton::Primary) {
@@ -259,13 +254,9 @@ impl LandlineApp {
         let profile_response = ui.interact(profile_rect, Id::new("profile-button"), Sense::click());
         let scale = if profile_response.hovered() { 1.05 } else { 1.0 };
         let icon_rect = Rect::from_center_size(profile_rect.center(), profile_rect.size() * scale);
-        painter.circle_stroke(icon_rect.center(), 11.0 * scale, Stroke::new(1.4, Color32::WHITE));
-        painter.circle_filled(icon_rect.center() - vec2(0.0, 3.5), 3.2 * scale, Color32::WHITE);
-        painter.rect_filled(
-            Rect::from_center_size(icon_rect.center() + vec2(0.0, 4.2), vec2(9.0, 5.0) * scale),
-            3.0,
-            Color32::WHITE,
-        );
+        egui::Image::new(egui::include_image!("../assets/profile_icon.png"))
+            .fit_to_exact_size(icon_rect.size())
+            .paint_at(ui, icon_rect);
         if profile_response.clicked() {
             self.draft_name = self.profile_name.clone();
             self.show_profile = true;
@@ -319,13 +310,16 @@ impl LandlineApp {
 
         let scale = if ptt_response.hovered() || ptt_down || self.local_talking { 1.04 } else { 1.0 };
         painter.circle_filled(ptt_center, 40.0 * scale, if self.local_talking { GREEN } else { RED });
-        painter.text(
-            ptt_center,
-            Align2::CENTER_CENTER,
-            if self.local_talking { "ON" } else { "MIC" },
-            FontId::proportional(12.0),
-            Color32::from_black_alpha(210),
-        );
+        let ptt_icon = Rect::from_center_size(ptt_center, vec2(24.0, 24.0) * scale);
+        if self.local_talking {
+            egui::Image::new(egui::include_image!("../assets/mic_on.svg"))
+                .fit_to_exact_size(ptt_icon.size())
+                .paint_at(ui, ptt_icon);
+        } else {
+            egui::Image::new(egui::include_image!("../assets/mic_muted.svg"))
+                .fit_to_exact_size(ptt_icon.size())
+                .paint_at(ui, ptt_icon);
+        }
 
         (ptt_response.hovered(), remote_hovered)
     }
@@ -364,7 +358,7 @@ impl LandlineApp {
         let panel = design_rect(canvas, 24.0, 472.0, 272.0, 80.0);
         painter.rect_filled(panel, 16.0, PANEL);
         painter.text(panel.min + vec2(25.0, 19.0), Align2::LEFT_CENTER, "Volume", FontId::proportional(13.0), Color32::WHITE);
-        painter.text(panel.min + vec2(224.0, 19.0), Align2::RIGHT_CENTER, format!("{}", (self.volume * 100.0).round() as i32), FontId::proportional(13.0), Color32::WHITE);
+        painter.text(panel.min + vec2(248.0, 19.0), Align2::RIGHT_CENTER, format!("{}", (self.volume * 100.0).round() as i32), FontId::proportional(13.0), Color32::WHITE);
 
         let slider = design_rect(canvas, 47.0, 504.0, 225.0, 24.0);
         let response = ui.interact(slider, Id::new("volume-slider"), Sense::click_and_drag());
@@ -511,6 +505,23 @@ impl eframe::App for LandlineApp {
             }
         });
     }
+}
+
+fn install_fonts(ctx: &egui::Context) {
+    let mut fonts = FontDefinitions::default();
+    fonts.font_data.insert(
+        "inter-tight".to_owned(),
+        Arc::new(FontData::from_static(include_bytes!(concat!(env!("OUT_DIR"), "/InterTight.ttf")))),
+    );
+    fonts.font_data.insert(
+        "inter".to_owned(),
+        Arc::new(FontData::from_static(include_bytes!(concat!(env!("OUT_DIR"), "/Inter.ttf")))),
+    );
+
+    let proportional = fonts.families.entry(FontFamily::Proportional).or_default();
+    proportional.insert(0, "inter".to_owned());
+    proportional.insert(0, "inter-tight".to_owned());
+    ctx.set_fonts(fonts);
 }
 
 #[derive(Clone, Copy)]
