@@ -130,6 +130,14 @@ The SwiftUI root intentionally uses the full 320 × 672 design area. AppKit prov
 
 The first port uses an undecorated eframe window and custom-painted window controls in the same design region used by the macOS traffic-light backing. Final glass/translucency behavior may need compositor-specific treatment and should not compromise the cross-platform layout contract merely to imitate one desktop environment.
 
+## Linux resources and font packaging
+
+Visual assets that are common to the product should be shared from the same supplied artwork rather than redrawn independently on Linux. The current Linux client carries copies of the established LANDLINE title SVG, muted/on PTT SVGs and profile artwork under `LandlineNix/assets/` and renders them through egui image loaders.
+
+Landline should not depend on the host Linux desktop having the design fonts installed. The current Nix build selects Inter and Inter Tight from Nixpkgs/Google Fonts through `flake.nix`. `LandlineNix/build.rs` locates those font files during compilation and copies them into Cargo's build output, where `include_bytes!` embeds them into the executable. egui then registers the embedded font data when the application starts.
+
+This gives the Linux binary deterministic Landline typography while avoiding a user-level/system-wide font installation requirement. If a future distributable uses an AppImage, Flatpak or another bundle format, the same principle applies: fonts are application resources, not a desktop prerequisite.
+
 ## Persistence
 
 Current local persistence includes:
