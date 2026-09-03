@@ -21,12 +21,12 @@ Main technologies:
 Important source files:
 
 - `LandlineMac/ContentView.swift` — main UI, profile state, PTT interaction and audio/network coordination
-- `LandlineMac/LandlineMacApp.swift` — application/window hosting
+- `LandlineMac/LandlineMacApp.swift` — application/window hosting and macOS Settings scene
 - `LandlineMac/IrohClient.swift` — active Iroh transport integration
 - `LandlineMac/IrohWire.swift` — frame definitions shared with the Linux implementation
 - `LandlineMac/MicrophoneCapture.swift` — microphone capture, VU analysis and PCM encoding
 - `LandlineMac/RemoteAudioPlayback.swift` — remote PCM playback
-- `LandlineMac/IrohSettingsView.swift` — temporary connection/diagnostic UI
+- `LandlineMac/IrohSettingsView.swift` — connection/diagnostic Settings UI
 - `LandlineMac/RelayClient.swift` — older relay/WebSocket transport retained as fallback/reference, not the current audio path
 
 ### Linux/NixOS — `linux-nix`
@@ -45,6 +45,8 @@ Current stack:
 - CPAL 0.15.3 for capture
 - Rodio 0.20.1 for playback
 - Tokio for async/network tasks
+- `rfd`/XDG desktop portal for Linux image-file selection
+- `image` for local avatar decoding/cropping/JPEG preparation
 - Nix flake for reproducible development/build dependencies
 
 The Linux client is a native port rather than a SwiftUI compatibility layer. Product behavior and the Landline wire protocol are shared; UI/audio implementation is platform-native.
@@ -101,6 +103,10 @@ This is sufficient for the current one-to-one proof but should be revisited when
 
 A bounded mailbox sits between the realtime audio callback and the async network sender so network stalls discard older frames rather than allowing latency to grow indefinitely.
 
+### Linux capture/playback
+
+The Linux client uses CPAL for microphone capture and Rodio for playback while preserving the same Landline network packet representation. Platform audio-device behavior can differ, so runtime issues such as start-of-PTT transients should be investigated at the capture/playback boundary without changing the wire protocol unless evidence requires it.
+
 ### Playback
 
 The receiver parses the audio packet header and schedules/plays the mono PCM at the supplied sample rate. Playback volume is controlled locally.
@@ -111,14 +117,26 @@ Linux must remain byte-compatible with the macOS audio packet format described i
 
 ## Profile exchange
 
-The Iroh hello payload currently carries:
+The Iroh hello payload carries:
 
 - endpoint ID
 - display name
 - avatar kind
 - optional avatar data
 
-macOS can send a JPEG avatar encoded as Base64. The first Linux port exchanges display names but does not yet implement full avatar parity.
+Both macOS and the current Linux parity implementation can send a JPEG avatar encoded as Base64 using the existing `avatarKind = jpeg` / `avatarData` contract. The Linux client centre-crops selected PNG/JPEG images, prepares a compact JPEG representation for persistence/transmission, and renders a local texture for the 12-o'clock avatar.
+
+Remote-avatar display parity on Linux is still separate from the ability to transmit the Linux user's avatar to a macOS peer.
+
+## Settings/UI routing architecture
+
+Networking settings and user profile editing remain separate UI concerns.
+
+- macOS exposes Iroh diagnostics/connection controls through the SwiftUI `Settings` scene and normal app menu.
+- the undecorated Linux window has no macOS-style global app menu, so the LANDLINE title opens a small in-window app menu containing **Iroh Settings…** and app-level commands.
+- the top-right Profile button opens only the Profile sheet on both platforms.
+
+This routing is a platform adaptation, not a transport difference.
 
 ## Window/UI architecture
 
@@ -129,6 +147,8 @@ The SwiftUI root intentionally uses the full 320 × 672 design area. AppKit prov
 ### Linux
 
 The first port uses an undecorated eframe window and custom-painted window controls in the same design region used by the macOS traffic-light backing. Final glass/translucency behavior may need compositor-specific treatment and should not compromise the cross-platform layout contract merely to imitate one desktop environment.
+
+The Linux Profile sheet now follows the same 320 × 584 / y=88 geometry and core interaction hierarchy as macOS, while native AppKit-quality backdrop blur remains compositor-specific follow-up work.
 
 ## Linux resources and font packaging
 
@@ -142,9 +162,9 @@ This gives the Linux binary deterministic Landline typography while avoiding a u
 
 Current local persistence includes:
 
-- stable Iroh endpoint identity;
-- macOS profile state;
-- Linux profile/display-name state as implemented by the first port.
+- stable Iroh endpoint identity on both platforms;
+- macOS profile name/avatar state;
+- Linux profile name plus prepared Base64 JPEG avatar data in the Linux profile store.
 
 Do not replace stable endpoint identity with an ephemeral key without an explicit product/architecture decision: endpoint stability is required for repeatable manual peer testing and may later support a contact model.
 
@@ -155,5 +175,5 @@ When implementing cross-platform changes, priority order is:
 1. preserve the existing wire contract or version it deliberately;
 2. preserve PTT/audio semantics;
 3. preserve stable identity behavior;
-4. use native platform audio/window APIs appropriately;
+4. use native platform audio/window/file-selection APIs appropriately;
 5. then pursue visual parity and platform-specific polish.
