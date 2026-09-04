@@ -1,0 +1,145 @@
+name: Fix macOS PTT without peers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mac-ptt-no-peer-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-publish:
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch PTT gating
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('LandlineMac/IrohClient.swift')
+          text = path.read_text()
+          old = '''    /// Landline's PTT path retains the old RelayClient shape. Iroh has no
+              /// central speaker arbiter, so this first one-to-one build grants local PTT
+              /// immediately unless the connected peer is already talking.
+              func beginTransmit() async -> Bool {
+                  guard isConnected, sendStream != nil else {
+                      localTransmitGranted = false
+                      return false
+                  }
+                  guard remoteSpeakerID == nil else {
+                      localTransmitGranted = false
+                      return false
+                  }
+
+                  do {
+                      try await sendFrame(.pttBegin)
+                      localTransmitGranted = true
+                      return true
+                  } catch {
+                      localTransmitGranted = false
+                      connectionFailed(error)
+                      return false
+                  }
+              }
+          '''
+          new = '''    /// Local PTT is available whenever this Landline endpoint is online,
+              /// even if none of the user's peers are currently connected. A live peer
+              /// connection only determines whether PTT/audio frames have somewhere to go.
+              /// This keeps the interaction model independent from peer presence and matches
+              /// the intended multi-user dial behaviour where offline contacts do not disable PTT.
+              func beginTransmit() async -> Bool {
+                  guard endpointReady else {
+                      localTransmitGranted = false
+                      return false
+                  }
+                  guard remoteSpeakerID == nil else {
+                      localTransmitGranted = false
+                      return false
+                  }
+
+                  // Grant the local interaction first. With no peer online the mic, VU and
+                  // talking state remain active until release; there is simply no recipient.
+                  localTransmitGranted = true
+
+                  guard isConnected, sendStream != nil else {
+                      return true
+                  }
+
+                  do {
+                      try await sendFrame(.pttBegin)
+                      return true
+                  } catch {
+                      // A peer can disappear during the press. Treat that as a network
+                      // disconnect, but keep local PTT active for the remainder of this hold.
+                      connectionFailed(error)
+                      localTransmitGranted = true
+                      return true
+                  }
+              }
+          '''
+          if old not in text:
+              raise SystemExit('Expected beginTransmit block was not found; refusing to patch.')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+          grep -n -A32 'func beginTransmit' LandlineMac/IrohClient.swift
+
+      - name: Resolve packages and build Release app
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project LandlineMac.xcodeproj \
+            -scheme LandlineMac \
+            -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/LandlineDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
+
+      - name: Verify built application
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/LandlineDerivedData/Build/Products/Release/LandlineMac.app"
+          test -d "$APP"
+          test -x "$APP/Contents/MacOS/LandlineMac"
+          file "$APP/Contents/MacOS/LandlineMac"
+          plutil -p "$APP/Contents/Info.plist" | head -80
+
+      - name: Package macOS app
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/LandlineDerivedData/Build/Products/Release/LandlineMac.app"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" LandlineMac-PTT-no-peer-fix.zip
+          shasum -a 256 LandlineMac-PTT-no-peer-fix.zip > LandlineMac-PTT-no-peer-fix.zip.sha256
+
+      - name: Upload macOS build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LandlineMac-PTT-no-peer-fix
+          path: |
+            LandlineMac-PTT-no-peer-fix.zip
+            LandlineMac-PTT-no-peer-fix.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit verified fix and remove one-time workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/mac-ptt-no-peer-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add LandlineMac/IrohClient.swift .github/workflows/mac-ptt-no-peer-fix.yml
+          git commit -m "Allow macOS PTT with no peers online"
+          git push origin HEAD:main
