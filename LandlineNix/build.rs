@@ -1,4 +1,7 @@
-use std::{env, fs, path::{Path, PathBuf}};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 fn main() {
     println!("cargo:rerun-if-env-changed=LANDLINE_FONT_DIR");
@@ -16,17 +19,39 @@ fn main() {
         .expect("Inter font was not found in LANDLINE_FONT_DIR");
 
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR missing"));
-    fs::copy(inter_tight, out.join("InterTight.ttf")).expect("copy Inter Tight font");
-    fs::copy(inter, out.join("Inter.ttf")).expect("copy Inter font");
+    embed_font(&inter_tight, &out.join("InterTight.ttf"), "Inter Tight");
+    embed_font(&inter, &out.join("Inter.ttf"), "Inter");
+}
+
+/// Copying directly from the Nix store with `fs::copy` also copies the
+/// source file's read-only permissions. Cargo can reuse a build-script OUT_DIR
+/// on subsequent builds, so trying to overwrite that read-only destination can
+/// fail with EACCES. Read + write keeps the generated copy user-writable while
+/// leaving the immutable Nix-store source untouched.
+fn embed_font(source: &Path, destination: &Path, label: &str) {
+    let bytes = fs::read(source).unwrap_or_else(|error| {
+        panic!("read {label} font {}: {error}", source.display())
+    });
+    fs::write(destination, bytes).unwrap_or_else(|error| {
+        panic!("write embedded {label} font {}: {error}", destination.display())
+    });
 }
 
 fn collect_fonts(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else { return; };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
             collect_fonts(&path, out);
-        } else if matches!(path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.to_ascii_lowercase()).as_deref(), Some("ttf" | "otf")) {
+        } else if matches!(
+            path.extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.to_ascii_lowercase())
+                .as_deref(),
+            Some("ttf" | "otf")
+        ) {
             out.push(path);
         }
     }
@@ -45,21 +70,29 @@ fn normalized_name(path: &Path) -> String {
 fn score(path: &Path) -> i32 {
     let name = normalized_name(path);
     let mut value = 0;
-    if name.contains("variable") || name.contains("wght") { value += 4; }
-    if !name.contains("italic") && !name.contains("slnt") { value += 6; }
-    if name.ends_with("ttf") { value += 1; }
+    if name.contains("variable") || name.contains("wght") {
+        value += 4;
+    }
+    if !name.contains("italic") && !name.contains("slnt") {
+        value += 6;
+    }
+    if name.ends_with("ttf") {
+        value += 1;
+    }
     value
 }
 
 fn choose_font(files: &[PathBuf], needle: &str) -> Option<PathBuf> {
-    files.iter()
+    files
+        .iter()
         .filter(|path| normalized_name(path).contains(needle))
         .max_by_key(|path| score(path))
         .cloned()
 }
 
 fn choose_font_excluding(files: &[PathBuf], needle: &str, excluded: &str) -> Option<PathBuf> {
-    files.iter()
+    files
+        .iter()
         .filter(|path| {
             let name = normalized_name(path);
             name.contains(needle) && !name.contains(excluded)
