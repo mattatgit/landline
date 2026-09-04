@@ -188,11 +188,13 @@ final class IrohClient: ObservableObject {
         disconnect(clearError: true)
     }
 
-    /// Landline's PTT path retains the old RelayClient shape. Iroh has no
-    /// central speaker arbiter, so this first one-to-one build grants local PTT
-    /// immediately unless the connected peer is already talking.
+    /// Local PTT is available whenever this Landline endpoint is online,
+    /// even if none of the user's peers are currently connected. A live peer
+    /// connection only determines whether PTT/audio frames have somewhere to go.
+    /// This keeps the interaction model independent from peer presence and matches
+    /// the intended multi-user dial behaviour where offline contacts do not disable PTT.
     func beginTransmit() async -> Bool {
-        guard isConnected, sendStream != nil else {
+        guard endpointReady else {
             localTransmitGranted = false
             return false
         }
@@ -201,14 +203,20 @@ final class IrohClient: ObservableObject {
             return false
         }
 
+        localTransmitGranted = true
+
+        guard isConnected, sendStream != nil else {
+            return true
+        }
+
         do {
             try await sendFrame(.pttBegin)
-            localTransmitGranted = true
             return true
         } catch {
-            localTransmitGranted = false
+            // Losing the only peer during a hold must not collapse local PTT.
             connectionFailed(error)
-            return false
+            localTransmitGranted = true
+            return true
         }
     }
 

@@ -564,8 +564,8 @@ struct ContentView: View {
     }
 
     private func avatarOffset(index: Int, count: Int, radius: CGFloat) -> CGSize {
-        let angle = (Double(index) / Double(count)) * 2 * Double.pi - Double.pi / 2
-        return CGSize(width: cos(angle) * radius, height: sin(angle) * radius)
+        let angle = (CGFloat(index) / CGFloat(count)) * 2 * .pi - .pi / 2
+        return CGSize(width: CoreGraphics.cos(angle) * radius, height: CoreGraphics.sin(angle) * radius)
     }
 
     @MainActor
