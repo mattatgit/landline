@@ -1,166 +1,146 @@
 # Landline — Current State
 
-This file is the concise continuity record for active Landline work. Update it whenever a meaningful milestone, technical decision, known issue, working baseline or next step changes.
+This is the concise continuity record for active Landline work. Update it whenever a meaningful milestone, technical decision, known issue, working baseline or next step changes.
 
 Last consolidated: 2026-09-04.
 
-## Current working baseline
-
-The current macOS source in `main` is the integrated SwiftUI/AppKit + Iroh build previously referred to as **Landline Iroh Spike V10**.
-
-The name is historical and misleading: this is no longer the rough standalone Iroh spike. The proven Iroh transport was integrated into the existing Landline SwiftUI shell, and that integrated source is the baseline from which current work should continue.
-
-The native Linux/NixOS implementation lives on `linux-nix` and is now proven to interoperate with the macOS build.
-
-## macOS state — `main`
-
-Current implementation:
-
-- 320 × 672 custom Landline desktop window.
-- SwiftUI interface hosted through AppKit.
-- Native glass/backdrop sampling with Landline tint.
-- Local user fixed at the 12 o'clock dial position.
-- Seven additional dial positions reserved for real remote participants; demo/dummy contacts were removed.
-- Profile sheet with persisted name and avatar state.
-- Press-and-hold PTT.
-- Local PTT is tied to Iroh endpoint readiness rather than peer presence: an online user can hold PTT, see the talking state and use the mic/VU even when no peers are online; network frames are sent only when a peer connection exists.
-- Status panel, volume slider and VU meter.
-- Iroh transport integrated into the actual Landline UI.
-- Persistent Iroh endpoint identity.
-- Manual connection by endpoint ID.
-- Current transport implementation is intentionally one-to-one.
-- Iroh chooses direct versus relay paths.
-- Temporary Iroh diagnostics include selected route/path information, latency and sent/received byte counts.
-- Iroh connection/diagnostics are exposed through the macOS Settings scene rather than the Profile button.
-- The older `RelayClient` remains in the tree as fallback/reference code, but current audio uses `IrohClient`.
-
-### macOS PTT no-peer regression fix — 2026-09-04
-
-A regression was confirmed where holding PTT while the Iroh endpoint was online but no peer was connected briefly showed the talking state and then immediately reverted to muted. The cause was `IrohClient.beginTransmit()` requiring `isConnected` and an active `sendStream`, incorrectly conflating endpoint availability with peer presence.
-
-The fix now:
-
-- allows local PTT whenever the Iroh endpoint is ready and no remote speaker is active;
-- keeps microphone capture, VU and the local talking state active for the duration of the hold when no peers are online;
-- sends `pttBegin`, audio and `pttEnd` only when a peer connection exists;
-- keeps local PTT active if the sole peer disappears during the start of a hold.
-
-The current source was compiled as a full optimized Release app in GitHub Actions using Xcode 16.2, Swift 6.0.3 and the macOS 15.2 SDK. The build and application validation steps passed. The CI test artifact is an unsigned **arm64** macOS application with a minimum system version of macOS 15.0. Runtime confirmation of the no-peer hold behavior on a real Mac is still required.
-
-The Release validation also exposed an existing Swift 6 overload ambiguity in the dial `cos`/`sin` geometry. That was corrected without changing geometry by using `CGFloat` angles and explicit CoreGraphics trigonometric functions.
-
-### Proven networking results
-
-Two important runtime milestones are now proven:
-
-1. A successful Mac-to-Mac cross-network test was completed with one laptop on a phone hotspot and the other Landline instance on a different network. Audio could be sent and received in both directions.
-2. A successful **macOS ↔ NixOS** interoperability test was completed on 2026-09-03. The clients connected by Iroh endpoint ID and two-way PTT audio worked well enough for normal conversation.
-
-Known audio issue from the Mac ↔ NixOS test:
-
-- occasional brief crackling was heard around the moment PTT was pressed / transmission started;
-- most transmitted audio was otherwise clear and usable;
-- treat this as a real follow-up issue, but do not change the wire protocol without first isolating whether the transient originates in capture start, playback start/buffering, device format negotiation, or another platform audio boundary.
-
-## Linux/NixOS state — `linux-nix`
-
-The native Linux/NixOS port is implemented in Rust under `LandlineNix/`.
-
-Current implementation:
-
-- Rust 2024 / Rust 1.91 client.
-- Iroh 1.0.2 transport compatible with the current macOS wire protocol.
-- eframe/egui shell with the same 320 × 672 layout basis.
-- custom minimize / maximize / close controls in the same top-left 64 × 24 control backing used by the macOS design.
-- CPAL microphone capture.
-- Rodio remote playback.
-- persistent endpoint identity.
-- manual one-to-one endpoint-ID connection.
-- PTT framing/audio transport.
-- volume control.
-- shared macOS/Figma artwork for the LANDLINE title, profile button and PTT mic states.
-- Inter and Inter Tight sourced through Nixpkgs and embedded into the executable at build time; host font installation is not required.
-- local profile name/avatar persistence.
-- PNG/JPEG avatar selection through the Linux desktop portal and drag/drop support while the Profile sheet is open.
-- Linux avatars are centre-cropped/prepared as JPEG, displayed in the local 12-o'clock slot and sent through the existing Landline hello/profile payload.
-- the Profile button is now reserved for Profile, matching macOS.
-- clicking the LANDLINE title opens a compact in-window app menu containing **Iroh Settings…** and **Quit Landline**; Iroh connection controls are no longer routed through Profile.
-- the Linux Profile sheet now uses the macOS/Figma 320 × 584 / y=88 geometry, name/avatar hierarchy and disabled/enabled Update semantics.
-- Nix flake and locked dependency set.
-
-Validation completed:
-
-- `cargo check` succeeds inside `nix develop`.
-- optimized release builds succeed in GitHub Actions inside the Nix development shell.
-- the app launches on a real NixOS desktop.
-- the shared SVG/profile artwork and embedded fonts were integrated after the first Nix screenshot exposed fallback rendering.
-- real macOS ↔ NixOS connection and two-way PTT audio are proven working.
-- the Profile/Settings parity source compiles and links successfully as a full optimized Nix release build; CI run 12 completed successfully after correcting the profile-sheet borrow-checker issue.
-- dependency locks were refreshed after the successful parity build; current `linux-nix` head is the resulting locked build state.
-
-Still to validate on the real NixOS desktop after the Profile/Settings parity build:
-
-- verify the new Linux Profile sheet, image picker/drop behavior and app-menu routing;
-- verify Linux-sent profile avatars appear correctly to macOS peers;
-- implement/display received remote avatars on Linux if still missing;
-- investigate the occasional start-of-PTT crackle;
-- continue compositor-specific glass/translucency work after functional/profile parity is stable.
-
-## Current product/transport distinction
-
-Do not confuse the intended Landline participant model with the current network implementation:
-
-- Product/UI model: local user + up to seven remote positions = eight-person dial.
-- Current Iroh implementation: one connected remote peer at a time.
-
-The one-to-one transport is a deliberate first integration step, not a decision to reduce the product permanently to two users.
-
-## Important current UI conventions
-
-Preserve these unless a new design decision explicitly changes them:
-
-- local user stays at 12 o'clock.
-- PTT is press-and-hold.
-- an online Landline endpoint can use local PTT even when no peers are currently online.
-- when the local user is talking, remote speaking indicators are suppressed so there is one active-speaker indicator.
-- speaking badge contains four animated sound bars centered inside a 24 × 24 green circle.
-- status text uses Medium-weight treatment rather than selectively bolding the speaker name.
-- muted PTT hover may say `Click to talk`, but must not visually swap the muted mic icon to an active-mic icon.
-- profile sheet uses the established blurred/glass modal treatment where the platform can support it, while preserving exact geometry/hierarchy first.
-- profile button hover scales the full 24 px button, not only the glyph.
-- the Profile button opens Profile on both platforms; networking/Iroh settings must not replace it.
-
-## Design reference
-
-The Landline design/prototype work has been developed against the SpacesOS 2026 Figma file. One recorded prototype reference is:
-
-`https://www.figma.com/proto/cbBv0kCV29fX8h2QXbZNDk/SpacesOS-2026?node-id=3911-102362&p=f&viewport=-1105%2C1488%2C0.5&t=zjZbXgJbbsOfVRT9-1&scaling=min-zoom&content-scaling=fixed&starting-point-node-id=3911%3A102362&page-id=3889%3A130618`
-
-When visual intent and implementation disagree, inspect the relevant current Figma frame before inventing a new treatment.
-
-## Repository workflow
+## Repository / branch roles
 
 Repository: `mattatgit/landline`
 
-Current branches:
+- `main` — canonical macOS SwiftUI/AppKit + Iroh baseline and continuity docs.
+- `linux-nix` — active native Rust/NixOS port.
 
-- `main` — macOS working baseline plus continuity documentation.
-- `linux-nix` — active native Linux/NixOS port.
+GitHub is the durable source of truth. Do not return to ZIP-based source handoffs as the normal development workflow.
 
-GitHub is the durable implementation/project record. Do not return to ZIP-based source handoffs as the normal workflow.
+## macOS baseline — `main`
+
+The current macOS source is the integrated build historically called **Landline Iroh Spike V10**. It is no longer a standalone spike; the proven Iroh transport is integrated into the Landline UI.
+
+Current macOS behavior:
+
+- 320 × 672 custom SwiftUI/AppKit window with native glass/backdrop treatment.
+- local user fixed at 12 o'clock; seven remote dial positions reserved for the intended eight-person product model.
+- Profile sheet with persisted name/avatar state.
+- press-and-hold PTT, status panel, volume and VU meter.
+- persistent Iroh endpoint identity and manual endpoint-ID connection.
+- current transport is deliberately one-to-one; Iroh selects direct versus relay paths.
+- Iroh connection/diagnostics live in the macOS Settings scene, not behind Profile.
+- older `RelayClient` remains only as fallback/reference; current audio uses `IrohClient`.
+
+### No-peer PTT regression — fixed
+
+A regression caused PTT to flash into talking state and immediately return to muted when the Iroh endpoint was online but no peer was connected. `IrohClient.beginTransmit()` was incorrectly requiring an active peer/send stream.
+
+Current behavior now separates endpoint readiness from peer presence:
+
+- local PTT is allowed whenever the Iroh endpoint is ready and no remote speaker is active;
+- microphone capture, VU and talking state remain active for the entire hold even with zero peers online;
+- `pttBegin`, audio and `pttEnd` are sent only when a peer exists;
+- remote-speaker arbitration still blocks local PTT when appropriate.
+
+Runtime confirmation on a real Mac is still required after the latest repaired distribution build.
+
+### macOS app icon / signing repair — 2026-09-04
+
+The previous downloadable build exposed two packaging regressions: the AppIcon asset set had disappeared from `Assets.xcassets`, and the downloadable `.app` was completely unsigned, causing Safari-quarantined copies to be rejected by Gatekeeper as “damaged”.
+
+The canonical AppIcon set has now been regenerated from `LandlineMac/Resources/Landline_app_icon_source.png` and committed to `main`.
+
+The repaired Apple Silicon Release pipeline now passes all of these checks:
+
+- optimized Xcode Release compile;
+- generated `AppIcon.icns`/asset verification;
+- arm64 executable verification;
+- ad-hoc signing of the completed `.app`;
+- `codesign --verify --deep --strict` before packaging;
+- ZIP packaging with `ditto`;
+- extraction of the final ZIP and a second signature verification after the ZIP round-trip;
+- artifact upload.
+
+The verified distributable is **Apple Silicon arm64**, macOS 15+.
+
+Important architecture constraint: pinned `iroh-ffi` 1.1.0 builds `aarch64-apple-darwin` for macOS but does not build a `x86_64-apple-darwin` macOS slice. Forcing `ARCHS=arm64 x86_64` therefore fails at link time. Do not label this build Universal unless the Iroh dependency strategy is changed or an x86_64 macOS Iroh slice is built separately.
+
+Ad-hoc signing is suitable for test builds but is not Apple notarization. A Safari-downloaded build may still require Right-click → Open or Privacy & Security → Open Anyway on first launch. A warning-free public distribution requires Developer ID signing and Apple notarization.
+
+## Proven networking results
+
+Two key runtime milestones are proven:
+
+1. Mac ↔ Mac cross-network audio worked with one laptop on a phone hotspot and the other on a separate network.
+2. macOS ↔ NixOS interoperability worked on 2026-09-03: connection by Iroh endpoint ID and two-way PTT audio were usable for normal conversation.
+
+Known audio issue:
+
+- occasional brief crackling occurs around PTT start;
+- most audio is otherwise clear;
+- isolate capture start, playback start/buffering, device format negotiation or another audio boundary before changing the wire protocol.
+
+## Linux/NixOS baseline — `linux-nix`
+
+The native Linux client lives under `LandlineNix/` and uses Rust 1.91, Iroh 1.0.2, eframe/egui, CPAL and Rodio.
+
+Current Linux implementation includes:
+
+- same 320 × 672 layout basis and custom window controls;
+- shared Landline title/profile/PTT artwork;
+- Inter + Inter Tight embedded into the executable from Nixpkgs at build time;
+- persistent Iroh endpoint identity;
+- one-to-one PTT/audio compatible with the macOS wire protocol;
+- local profile name/avatar persistence;
+- Profile button reserved for Profile;
+- LANDLINE app menu containing Iroh Settings… and Quit;
+- Profile sheet aligned to the macOS geometry/hierarchy;
+- PNG/JPEG avatar selection and drag/drop;
+- Linux avatar JPEG sent through the existing Hello/profile payload;
+- received remote avatar data is wired through to the Linux UI after an earlier bug discarded it;
+- Nix flake and locked dependency set.
+
+Real macOS ↔ NixOS two-way audio is proven. The latest Linux parity fixes still need full real-desktop confirmation for opacity/theme, sheet shadow, image upload stability and remote-avatar display.
+
+## Product vs current transport
+
+Do not confuse the intended Landline product with the current transport limitation:
+
+- intended product: local user + up to seven remote participants = eight-person shared dial;
+- current implementation: one connected remote peer at a time.
+
+The one-to-one transport is an integration stage, not a permanent reduction of the product.
+
+Longer-term direction discussed: persistent Landline user/contact identities, invite/QR-based onboarding instead of pasted endpoint IDs, automatic reconnect, and fan-out of live PTT audio to all online dial members. Direct Iroh streams remain the preferred live-audio path; group/presence state may use a separate mechanism such as Iroh gossip.
+
+## UI conventions to preserve
+
+- local user stays at 12 o'clock.
+- PTT is press-and-hold.
+- endpoint-online users can hold PTT even when no peers are online.
+- suppress remote speaking indicators while local user is talking.
+- speaking badge uses four centered animated bars in a 24 × 24 green circle.
+- status text uses Medium weight; do not selectively bold the speaker name.
+- muted PTT hover may say `Click to talk` but must not swap the muted icon to active.
+- Profile button hover scales the full 24 px button.
+- Profile opens Profile on both platforms; networking settings belong in Settings/app menu.
+- preserve established sheet geometry/hierarchy first; platform-specific blur/glass may differ.
+
+## Design reference
+
+Primary prototype reference:
+
+`https://www.figma.com/proto/cbBv0kCV29fX8h2QXbZNDk/SpacesOS-2026?node-id=3911-102362&p=f&viewport=-1105%2C1488%2C0.5&t=zjZbXgJbbsOfVRT9-1&scaling=min-zoom&content-scaling=fixed&starting-point-node-id=3911%3A102362&page-id=3889%3A130618`
+
+When implementation and visual intent disagree, inspect the relevant Figma frame before inventing a new treatment.
 
 ## Current next step
 
-**Runtime-test the new macOS no-peer PTT build on an Apple Silicon Mac.**
+Runtime-test the repaired **Apple Silicon signed/icon-restored macOS build** on a real Mac.
 
-Verify first:
+Verify:
 
-1. launch Landline and wait until the Iroh endpoint is ready while leaving all peers offline/disconnected;
-2. press and hold PTT for several seconds;
-3. confirm the centre button remains in its talking state until release rather than flashing and reverting to muted;
-4. confirm the status remains `You are talking` while held;
-5. confirm the microphone/VU responds while held;
-6. release PTT and confirm it returns cleanly to muted;
-7. reconnect a peer and verify normal two-way PTT still works.
+1. the Landline app icon appears correctly in Finder/Dock;
+2. the extracted app launches (using Right-click → Open/Open Anyway if Gatekeeper requests it because the build is ad-hoc signed rather than notarized);
+3. with no peer connected but the Iroh endpoint ready, holding PTT for several seconds remains in `You are talking` until release and the VU responds;
+4. releasing PTT returns cleanly to muted;
+5. reconnect a peer and verify normal two-way PTT still works.
 
-After that, continue the NixOS parity/runtime pass and investigate the occasional start-of-PTT crackle if it remains reproducible.
+After that, continue the Linux parity/runtime pass and investigate the occasional start-of-PTT crackle if reproducible.
