@@ -28,7 +28,7 @@ Current macOS behavior:
 - Iroh connection/diagnostics live in the macOS Settings scene, not behind Profile.
 - older `RelayClient` remains only as fallback/reference; current audio uses `IrohClient`.
 
-### No-peer PTT regression — fixed
+### No-peer PTT regression — fixed and runtime confirmed
 
 A regression caused PTT to flash into talking state and immediately return to muted when the Iroh endpoint was online but no peer was connected. `IrohClient.beginTransmit()` was incorrectly requiring an active peer/send stream.
 
@@ -39,7 +39,23 @@ Current behavior now separates endpoint readiness from peer presence:
 - `pttBegin`, audio and `pttEnd` are sent only when a peer exists;
 - remote-speaker arbitration still blocks local PTT when appropriate.
 
-Runtime confirmation on a real Mac is still required after the latest repaired distribution build.
+This behavior was runtime-confirmed on a real Apple Silicon Mac on 2026-09-04: PTT could be pressed and held with no peers online and remained active until release.
+
+### First microphone permission crash — fixed in source, runtime re-test pending
+
+During the first real-Mac test of the repaired no-peer PTT build, the app crashed once on the first PTT press while macOS was handling the initial microphone permission request.
+
+The crash report showed `EXC_BREAKPOINT / SIGTRAP` on a background TCC callback queue with `_dispatch_assert_queue_fail` and `_swift_task_checkIsolatedSwift`, pointing directly to the completion-handler closure inside `MicrophoneCapture.ensurePermission()`.
+
+Cause: `MicrophoneCapture` is `@MainActor` isolated, while `AVCaptureDevice.requestAccess(for:completionHandler:)` may invoke its callback on a background queue. Under Swift 6, the callback inherited actor isolation and the runtime trapped before the closure body could execute.
+
+Fix:
+
+- removed the manual `withCheckedContinuation` wrapper around the completion-handler API;
+- now uses AVFoundation's native async overload: `await AVCaptureDevice.requestAccess(for: .audio)`;
+- permission/UI state continues on the MainActor after the await.
+
+The fixed source completed a full Apple Silicon Release compile in GitHub Actions, then passed app/icon verification, ad-hoc signing, ZIP packaging, ZIP extraction and post-extraction signature verification. Runtime confirmation of the first-permission path still requires resetting microphone permission so macOS presents the prompt again.
 
 ### macOS app icon / signing repair — 2026-09-04
 
@@ -133,14 +149,19 @@ When implementation and visual intent disagree, inspect the relevant Figma frame
 
 ## Current next step
 
-Runtime-test the repaired **Apple Silicon signed/icon-restored macOS build** on a real Mac.
+Runtime-test the **microphone permission crash fix** on a real Apple Silicon Mac.
 
-Verify:
+Because the existing bundle may already have microphone permission, reset that permission first so the first-request code path runs again:
 
-1. the Landline app icon appears correctly in Finder/Dock;
-2. the extracted app launches (using Right-click → Open/Open Anyway if Gatekeeper requests it because the build is ad-hoc signed rather than notarized);
-3. with no peer connected but the Iroh endpoint ready, holding PTT for several seconds remains in `You are talking` until release and the VU responds;
-4. releasing PTT returns cleanly to muted;
-5. reconnect a peer and verify normal two-way PTT still works.
+` tccutil reset Microphone com.landline.prototype.mac `
+
+Then:
+
+1. launch the new fixed build;
+2. with no peers connected, press and hold PTT;
+3. confirm macOS presents the microphone permission prompt without Landline crashing;
+4. allow microphone access and confirm PTT remains in `You are talking` for the full hold and the VU responds;
+5. release and repeat PTT several times;
+6. reconnect a peer and verify normal two-way PTT still works.
 
 After that, continue the Linux parity/runtime pass and investigate the occasional start-of-PTT crackle if reproducible.
