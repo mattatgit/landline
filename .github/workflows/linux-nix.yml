@@ -24,8 +24,24 @@ jobs:
 
       - uses: DeterminateSystems/nix-installer-action@main
 
-      - name: Build Linux client inside Nix shell
-        run: nix develop --command cargo build --release --manifest-path LandlineNix/Cargo.toml
+      - name: Build Linux client and verify rebuild safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix develop --command bash -c '
+            set -euo pipefail
+            cargo build --release --manifest-path LandlineNix/Cargo.toml
+
+            # Reproduce the stale-permission condition from older builds: the
+            # previous build script copied Nix-store font permissions into
+            # Cargo OUT_DIR, leaving these generated files read-only.
+            find LandlineNix/target/release/build -path "*/out/InterTight.ttf" -exec chmod 0444 {} +
+            find LandlineNix/target/release/build -path "*/out/Inter.ttf" -exec chmod 0444 {} +
+
+            # Force the build script to rerun in the same Cargo target tree.
+            touch LandlineNix/build.rs
+            cargo build --release --manifest-path LandlineNix/Cargo.toml
+          '
 
       - name: Record resolved lock files
         shell: bash
