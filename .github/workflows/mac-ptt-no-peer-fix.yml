@@ -11,12 +11,22 @@ permissions:
 
 jobs:
   patch-build-publish:
-    runs-on: macos-15
+    runs-on: macos-14
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Select stable Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d /Applications/Xcode_15.4.app ]; then
+            sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+          fi
+          xcodebuild -version
+          swift --version
 
       - name: Patch PTT gating
         shell: bash
@@ -93,7 +103,18 @@ jobs:
           git diff --check
           grep -n -A32 'func beginTransmit' LandlineMac/IrohClient.swift
 
-      - name: Resolve packages and build Release app
+      - name: Resolve Swift packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData"
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project LandlineMac.xcodeproj \
+            -scheme LandlineMac \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
+
+      - name: Build Release app
         shell: bash
         run: |
           set -euo pipefail
@@ -102,6 +123,8 @@ jobs:
             -scheme LandlineMac \
             -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/LandlineDerivedData" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
+            -disableAutomaticPackageResolution \
             CODE_SIGNING_ALLOWED=NO \
             clean build
 
