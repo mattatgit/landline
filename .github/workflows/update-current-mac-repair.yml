@@ -15,8 +15,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Update CURRENT.md
-        shell: python
+        shell: bash
         run: |
+          set -euo pipefail
+          python3 - <<'PY'
           from pathlib import Path
           p = Path('docs/CURRENT.md')
           s = p.read_text()
@@ -27,6 +29,7 @@ Do **not** force this Iroh build to Universal arm64+x86_64 without changing the 
           if old not in s:
               raise SystemExit('Expected macOS build paragraph not found')
           p.write_text(s.replace(old, new))
+          PY
       - name: Commit continuity update
         shell: bash
         run: |
