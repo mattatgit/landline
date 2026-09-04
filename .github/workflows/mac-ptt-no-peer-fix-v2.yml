@@ -26,14 +26,15 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Patch PTT gating
+      - name: Patch PTT gating and Swift 6 geometry
         shell: bash
         run: |
           set -euo pipefail
           python3 <<'PY'
           from pathlib import Path
-          path = Path('LandlineMac/IrohClient.swift')
-          text = path.read_text()
+
+          ptt_path = Path('LandlineMac/IrohClient.swift')
+          text = ptt_path.read_text()
           old = '''    /// Landline's PTT path retains the old RelayClient shape. Iroh has no
               /// central speaker arbiter, so this first one-to-one build grants local PTT
               /// immediately unless the connected peer is already talking.
@@ -92,10 +93,26 @@ jobs:
           '''
           if old not in text:
               raise SystemExit('Expected beginTransmit block was not found; refusing to patch.')
-          path.write_text(text.replace(old, new, 1))
+          ptt_path.write_text(text.replace(old, new, 1))
+
+          ui_path = Path('LandlineMac/ContentView.swift')
+          ui = ui_path.read_text()
+          old_geometry = '''    private func avatarOffset(index: Int, count: Int, radius: CGFloat) -> CGSize {
+              let angle = (Double(index) / Double(count)) * 2 * Double.pi - Double.pi / 2
+              return CGSize(width: cos(angle) * radius, height: sin(angle) * radius)
+          }
+          '''
+          new_geometry = '''    private func avatarOffset(index: Int, count: Int, radius: CGFloat) -> CGSize {
+              let angle = (CGFloat(index) / CGFloat(count)) * 2 * .pi - .pi / 2
+              return CGSize(width: CoreGraphics.cos(angle) * radius, height: CoreGraphics.sin(angle) * radius)
+          }
+          '''
+          if old_geometry not in ui:
+              raise SystemExit('Expected avatarOffset block was not found; refusing to patch.')
+          ui_path.write_text(ui.replace(old_geometry, new_geometry, 1))
           PY
           git diff --check
-          grep -n -A30 'func beginTransmit' LandlineMac/IrohClient.swift
+          git diff -- LandlineMac/IrohClient.swift LandlineMac/ContentView.swift
 
       - name: Resolve packages
         shell: bash
@@ -161,6 +178,6 @@ jobs:
           rm -f .github/workflows/mac-ptt-no-peer-fix-v2.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add LandlineMac/IrohClient.swift .github/workflows/
+          git add LandlineMac/IrohClient.swift LandlineMac/ContentView.swift .github/workflows/
           git commit -m "Allow macOS PTT with no peers online"
           git push origin HEAD:main
