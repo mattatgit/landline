@@ -259,11 +259,11 @@ final class MicrophoneCapture: ObservableObject {
             errorMessage = "Microphone access required"
             return false
         case .undetermined:
-            let granted = await withCheckedContinuation { continuation in
-                AVCaptureDevice.requestAccess(for: .audio) { allowed in
-                    continuation.resume(returning: allowed)
-                }
-            }
+            // Use AVFoundation's native async permission API. Its completion-handler
+            // variant may invoke the callback on a background queue; when called from
+            // this MainActor-isolated type Swift 6 can infer an actor-isolated callback
+            // and trap at runtime before the callback body executes.
+            let granted = await AVCaptureDevice.requestAccess(for: .audio)
             permissionState = granted ? .granted : .denied
             if !granted {
                 errorMessage = "Microphone access required"
