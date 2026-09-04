@@ -129,12 +129,13 @@ jobs:
           set -euo pipefail
           APP="$RUNNER_TEMP/LandlineDerivedData/Build/Products/Release/LandlineMac.app"
           ZIP='LandlineMac-Universal-signed-icon-fix.zip'
-          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+          ditto -c -k --keepParent "$APP" "$ZIP"
           shasum -a 256 "$ZIP" > "$ZIP.sha256"
           ROUNDTRIP="$RUNNER_TEMP/roundtrip"
           rm -rf "$ROUNDTRIP"
           mkdir -p "$ROUNDTRIP"
           ditto -x -k "$ZIP" "$ROUNDTRIP"
+          xattr -cr "$ROUNDTRIP/LandlineMac.app"
           test -f "$ROUNDTRIP/LandlineMac.app/Contents/Resources/AppIcon.icns"
           codesign --verify --deep --strict --verbose=4 "$ROUNDTRIP/LandlineMac.app"
           file "$ROUNDTRIP/LandlineMac.app/Contents/MacOS/LandlineMac"
