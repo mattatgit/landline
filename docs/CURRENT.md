@@ -2,7 +2,7 @@
 
 This file is the concise continuity record for active Landline work. Update it whenever a meaningful milestone, technical decision, known issue, working baseline or next step changes.
 
-Last consolidated: 2026-09-03.
+Last consolidated: 2026-09-04.
 
 ## Current working baseline
 
@@ -23,6 +23,7 @@ Current implementation:
 - Seven additional dial positions reserved for real remote participants; demo/dummy contacts were removed.
 - Profile sheet with persisted name and avatar state.
 - Press-and-hold PTT.
+- Local PTT is tied to Iroh endpoint readiness rather than peer presence: an online user can hold PTT, see the talking state and use the mic/VU even when no peers are online; network frames are sent only when a peer connection exists.
 - Status panel, volume slider and VU meter.
 - Iroh transport integrated into the actual Landline UI.
 - Persistent Iroh endpoint identity.
@@ -32,6 +33,21 @@ Current implementation:
 - Temporary Iroh diagnostics include selected route/path information, latency and sent/received byte counts.
 - Iroh connection/diagnostics are exposed through the macOS Settings scene rather than the Profile button.
 - The older `RelayClient` remains in the tree as fallback/reference code, but current audio uses `IrohClient`.
+
+### macOS PTT no-peer regression fix — 2026-09-04
+
+A regression was confirmed where holding PTT while the Iroh endpoint was online but no peer was connected briefly showed the talking state and then immediately reverted to muted. The cause was `IrohClient.beginTransmit()` requiring `isConnected` and an active `sendStream`, incorrectly conflating endpoint availability with peer presence.
+
+The fix now:
+
+- allows local PTT whenever the Iroh endpoint is ready and no remote speaker is active;
+- keeps microphone capture, VU and the local talking state active for the duration of the hold when no peers are online;
+- sends `pttBegin`, audio and `pttEnd` only when a peer connection exists;
+- keeps local PTT active if the sole peer disappears during the start of a hold.
+
+The current source was compiled as a full optimized Release app in GitHub Actions using Xcode 16.2, Swift 6.0.3 and the macOS 15.2 SDK. The build and application validation steps passed. The CI test artifact is an unsigned **arm64** macOS application with a minimum system version of macOS 15.0. Runtime confirmation of the no-peer hold behavior on a real Mac is still required.
+
+The Release validation also exposed an existing Swift 6 overload ambiguity in the dial `cos`/`sin` geometry. That was corrected without changing geometry by using `CGFloat` angles and explicit CoreGraphics trigonometric functions.
 
 ### Proven networking results
 
@@ -105,6 +121,7 @@ Preserve these unless a new design decision explicitly changes them:
 
 - local user stays at 12 o'clock.
 - PTT is press-and-hold.
+- an online Landline endpoint can use local PTT even when no peers are currently online.
 - when the local user is talking, remote speaking indicators are suppressed so there is one active-speaker indicator.
 - speaking badge contains four animated sound bars centered inside a 24 × 24 green circle.
 - status text uses Medium-weight treatment rather than selectively bolding the speaker name.
@@ -134,18 +151,16 @@ GitHub is the durable implementation/project record. Do not return to ZIP-based 
 
 ## Current next step
 
-**Run the green Profile/Settings parity build on the real NixOS machine and compare it directly with the macOS Profile sheet.**
+**Runtime-test the new macOS no-peer PTT build on an Apple Silicon Mac.**
 
-Verify, in order:
+Verify first:
 
-1. Profile button opens **Edit profile**, not Iroh settings;
-2. sheet position, field/avatar/button geometry and typography visually track the macOS reference;
-3. unchanged existing profile shows a disabled Update button and edits enable it;
-4. PNG/JPEG click-to-upload works through the desktop portal;
-5. drag/drop image import works;
-6. saved name/avatar survive relaunch and appear in the local 12-o'clock slot;
-7. LANDLINE title opens the in-window app menu and **Iroh Settings…** opens the connection controls;
-8. Mac and Nix reconnect and exchange profile data correctly;
-9. repeat PTT tests and gather more observations about the start-of-transmission crackle before deciding on an audio buffering/capture fix.
+1. launch Landline and wait until the Iroh endpoint is ready while leaving all peers offline/disconnected;
+2. press and hold PTT for several seconds;
+3. confirm the centre button remains in its talking state until release rather than flashing and reverting to muted;
+4. confirm the status remains `You are talking` while held;
+5. confirm the microphone/VU responds while held;
+6. release PTT and confirm it returns cleanly to muted;
+7. reconnect a peer and verify normal two-way PTT still works.
 
-After that runtime pass, update this file with the results and choose between crackle mitigation, received-avatar parity on Linux, or further compositor/glass polish as the next priority.
+After that, continue the NixOS parity/runtime pass and investigate the occasional start-of-PTT crackle if it remains reproducible.
