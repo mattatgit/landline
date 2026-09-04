@@ -1,5 +1,6 @@
 use std::{
     env, fs,
+    io::ErrorKind,
     path::{Path, PathBuf},
 };
 
@@ -23,15 +24,24 @@ fn main() {
     embed_font(&inter, &out.join("Inter.ttf"), "Inter");
 }
 
-/// Copying directly from the Nix store with `fs::copy` also copies the
-/// source file's read-only permissions. Cargo can reuse a build-script OUT_DIR
-/// on subsequent builds, so trying to overwrite that read-only destination can
-/// fail with EACCES. Read + write keeps the generated copy user-writable while
-/// leaving the immutable Nix-store source untouched.
+/// `fs::copy` preserves the Nix-store font's read-only permissions. Cargo can
+/// reuse a build-script OUT_DIR, so a later rebuild may be unable to overwrite
+/// that generated file. Remove any stale destination first, then write the
+/// bytes so the new embedded copy gets normal user-writable permissions.
 fn embed_font(source: &Path, destination: &Path, label: &str) {
     let bytes = fs::read(source).unwrap_or_else(|error| {
         panic!("read {label} font {}: {error}", source.display())
     });
+
+    match fs::remove_file(destination) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => panic!(
+            "remove stale embedded {label} font {}: {error}",
+            destination.display()
+        ),
+    }
+
     fs::write(destination, bytes).unwrap_or_else(|error| {
         panic!("write embedded {label} font {}: {error}", destination.display())
     });
