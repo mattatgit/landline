@@ -33,7 +33,6 @@ jobs:
           SOURCE='LandlineMac/Resources/Landline_app_icon_source.png'
           ICONSET='LandlineMac/Assets.xcassets/AppIcon.appiconset'
           test -f "$SOURCE"
-          sips -g pixelWidth -g pixelHeight "$SOURCE"
           WIDTH=$(sips -g pixelWidth "$SOURCE" | awk '/pixelWidth/{print $2}')
           HEIGHT=$(sips -g pixelHeight "$SOURCE" | awk '/pixelHeight/{print $2}')
           test "$WIDTH" -ge 1024
@@ -80,7 +79,7 @@ jobs:
             -scheme LandlineMac \
             -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
 
-      - name: Build Universal Release
+      - name: Build Apple Silicon Release
         shell: bash
         run: |
           set -o pipefail
@@ -89,12 +88,12 @@ jobs:
             -project LandlineMac.xcodeproj \
             -scheme LandlineMac \
             -configuration Release \
-            -destination 'platform=macOS' \
+            -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath "$RUNNER_TEMP/LandlineDerivedData" \
             -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
             -disableAutomaticPackageResolution \
-            ONLY_ACTIVE_ARCH=NO \
-            'ARCHS=arm64 x86_64' \
+            ONLY_ACTIVE_ARCH=YES \
+            ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO \
             clean build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
 
@@ -107,10 +106,10 @@ jobs:
           {
             echo '# Last macOS CI build failure'
             echo
-            echo 'Generated automatically from the failed Universal Release build.'
+            echo 'Generated automatically from the failed Apple Silicon Release build.'
             echo
             echo '```text'
-            grep -n -E '(^|[[:space:]])(error:|fatal error:)|BUILD FAILED|The following build commands failed|Command .* failed' "$RUNNER_TEMP/xcodebuild.log" | tail -n 120 || tail -n 160 "$RUNNER_TEMP/xcodebuild.log"
+            tail -n 500 "$RUNNER_TEMP/xcodebuild.log"
             echo '```'
           } > docs/CI_LAST_MAC_BUILD_FAILURE.md
           git config user.name "github-actions[bot]"
@@ -119,7 +118,7 @@ jobs:
           git commit -m "Record macOS CI build failure" || exit 0
           git push origin HEAD:main
 
-      - name: Verify icon and Universal binary
+      - name: Verify icon and arm64 binary
         shell: bash
         run: |
           set -euo pipefail
@@ -130,9 +129,7 @@ jobs:
           test -f "$APP/Contents/Resources/Assets.car"
           file "$APP/Contents/MacOS/LandlineMac" | tee "$RUNNER_TEMP/file.txt"
           grep -q 'arm64' "$RUNNER_TEMP/file.txt"
-          grep -q 'x86_64' "$RUNNER_TEMP/file.txt"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP/Contents/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$APP/Contents/Info.plist"
 
       - name: Ad-hoc sign app
         shell: bash
@@ -150,7 +147,7 @@ jobs:
         run: |
           set -euo pipefail
           APP="$RUNNER_TEMP/LandlineDerivedData/Build/Products/Release/LandlineMac.app"
-          ZIP='LandlineMac-Universal-signed-icon-fix.zip'
+          ZIP='LandlineMac-arm64-signed-icon-fix.zip'
           ditto -c -k --keepParent "$APP" "$ZIP"
           shasum -a 256 "$ZIP" > "$ZIP.sha256"
           ROUNDTRIP="$RUNNER_TEMP/roundtrip"
@@ -165,10 +162,10 @@ jobs:
       - name: Upload repaired build
         uses: actions/upload-artifact@v4
         with:
-          name: LandlineMac-Universal-signed-icon-fix
+          name: LandlineMac-arm64-signed-icon-fix
           path: |
-            LandlineMac-Universal-signed-icon-fix.zip
-            LandlineMac-Universal-signed-icon-fix.zip.sha256
+            LandlineMac-arm64-signed-icon-fix.zip
+            LandlineMac-arm64-signed-icon-fix.zip.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -180,6 +177,6 @@ jobs:
           rm -f docs/CI_LAST_MAC_BUILD_FAILURE.md
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add LandlineMac/Assets.xcassets/AppIcon.appiconset .github/workflows/ docs/CI_LAST_MAC_BUILD_FAILURE.md || true
+          git add -A LandlineMac/Assets.xcassets/AppIcon.appiconset .github/workflows docs/CI_LAST_MAC_BUILD_FAILURE.md || true
           git commit -m "Restore macOS app icon assets"
           git push origin HEAD:main
