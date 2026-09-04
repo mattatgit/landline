@@ -1,0 +1,39 @@
+name: Record repaired macOS build baseline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/update-current-mac-repair.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  update-context:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update CURRENT.md
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('docs/CURRENT.md')
+          s = p.read_text()
+          old = '''The current source was compiled as a full optimized Release app in GitHub Actions using Xcode 16.2, Swift 6.0.3 and the macOS 15.2 SDK. The build and application validation steps passed. The CI test artifact is an unsigned **arm64** macOS application with a minimum system version of macOS 15.0. Runtime confirmation of the no-peer hold behavior on a real Mac is still required.'''
+          new = '''The current source was compiled as a full optimized **Apple Silicon arm64** Release app in GitHub Actions using Xcode 16.2, Swift 6.0.3 and the macOS 15.2 SDK. The repaired distribution build restores the canonical AppIcon asset set, verifies the generated `AppIcon.icns`, ad-hoc signs the completed `.app`, packages it with `ditto`, then extracts the final ZIP and verifies the signature again. All of those build, icon, signing, ZIP round-trip and artifact-upload steps passed on 2026-09-04. Runtime confirmation of the no-peer hold behavior and Gatekeeper launch behavior on a real Mac is still required.
+
+Do **not** force this Iroh build to Universal arm64+x86_64 without changing the dependency strategy: pinned `iroh-ffi` 1.1.0 builds a macOS `aarch64-apple-darwin` slice but does not build a macOS `x86_64-apple-darwin` slice, so forcing `ARCHS=arm64 x86_64` fails at link time. The current supported macOS distribution target is Apple Silicon arm64.'''
+          if old not in s:
+              raise SystemExit('Expected macOS build paragraph not found')
+          p.write_text(s.replace(old, new))
+      - name: Commit continuity update
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/update-current-mac-repair.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/CURRENT.md .github/workflows/update-current-mac-repair.yml
+          git commit -m "Update macOS repaired build context"
+          git push origin HEAD:main
