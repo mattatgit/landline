@@ -1,0 +1,161 @@
+name: Repair macOS icon and signed test build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mac-icon-sign-repair.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-repair:
+    runs-on: macos-14
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode 16.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+          xcodebuild -version
+          swift --version
+
+      - name: Restore AppIcon asset set
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE='LandlineMac/Resources/Landline_app_icon_source.png'
+          ICONSET='LandlineMac/Assets.xcassets/AppIcon.appiconset'
+          test -f "$SOURCE"
+          sips -g pixelWidth -g pixelHeight "$SOURCE"
+          WIDTH=$(sips -g pixelWidth "$SOURCE" | awk '/pixelWidth/{print $2}')
+          HEIGHT=$(sips -g pixelHeight "$SOURCE" | awk '/pixelHeight/{print $2}')
+          test "$WIDTH" -ge 1024
+          test "$HEIGHT" -ge 1024
+          rm -rf "$ICONSET"
+          mkdir -p "$ICONSET"
+          sips -z 16 16 "$SOURCE" --out "$ICONSET/icon_16x16.png" >/dev/null
+          sips -z 32 32 "$SOURCE" --out "$ICONSET/icon_16x16@2x.png" >/dev/null
+          sips -z 32 32 "$SOURCE" --out "$ICONSET/icon_32x32.png" >/dev/null
+          sips -z 64 64 "$SOURCE" --out "$ICONSET/icon_32x32@2x.png" >/dev/null
+          sips -z 128 128 "$SOURCE" --out "$ICONSET/icon_128x128.png" >/dev/null
+          sips -z 256 256 "$SOURCE" --out "$ICONSET/icon_128x128@2x.png" >/dev/null
+          sips -z 256 256 "$SOURCE" --out "$ICONSET/icon_256x256.png" >/dev/null
+          sips -z 512 512 "$SOURCE" --out "$ICONSET/icon_256x256@2x.png" >/dev/null
+          sips -z 512 512 "$SOURCE" --out "$ICONSET/icon_512x512.png" >/dev/null
+          sips -z 1024 1024 "$SOURCE" --out "$ICONSET/icon_512x512@2x.png" >/dev/null
+          cat > "$ICONSET/Contents.json" <<'JSON'
+          {
+            "images" : [
+              { "filename" : "icon_16x16.png", "idiom" : "mac", "scale" : "1x", "size" : "16x16" },
+              { "filename" : "icon_16x16@2x.png", "idiom" : "mac", "scale" : "2x", "size" : "16x16" },
+              { "filename" : "icon_32x32.png", "idiom" : "mac", "scale" : "1x", "size" : "32x32" },
+              { "filename" : "icon_32x32@2x.png", "idiom" : "mac", "scale" : "2x", "size" : "32x32" },
+              { "filename" : "icon_128x128.png", "idiom" : "mac", "scale" : "1x", "size" : "128x128" },
+              { "filename" : "icon_128x128@2x.png", "idiom" : "mac", "scale" : "2x", "size" : "128x128" },
+              { "filename" : "icon_256x256.png", "idiom" : "mac", "scale" : "1x", "size" : "256x256" },
+              { "filename" : "icon_256x256@2x.png", "idiom" : "mac", "scale" : "2x", "size" : "256x256" },
+              { "filename" : "icon_512x512.png", "idiom" : "mac", "scale" : "1x", "size" : "512x512" },
+              { "filename" : "icon_512x512@2x.png", "idiom" : "mac", "scale" : "2x", "size" : "512x512" }
+            ],
+            "info" : { "author" : "xcode", "version" : 1 }
+          }
+          JSON
+          git diff --check
+
+      - name: Resolve packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData"
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project LandlineMac.xcodeproj \
+            -scheme LandlineMac \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
+
+      - name: Build Universal Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project LandlineMac.xcodeproj \
+            -scheme LandlineMac \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/LandlineDerivedData" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
+            -disableAutomaticPackageResolution \
+            ONLY_ACTIVE_ARCH=NO \
+            'ARCHS=arm64 x86_64' \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build
+
+      - name: Verify icon and Universal binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/LandlineDerivedData/Build/Products/Release/LandlineMac.app"
+          test -d "$APP"
+          test -x "$APP/Contents/MacOS/LandlineMac"
+          test -f "$APP/Contents/Resources/AppIcon.icns"
+          test -f "$APP/Contents/Resources/Assets.car"
+          file "$APP/Contents/MacOS/LandlineMac" | tee "$RUNNER_TEMP/file.txt"
+          grep -q 'arm64' "$RUNNER_TEMP/file.txt"
+          grep -q 'x86_64' "$RUNNER_TEMP/file.txt"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$APP/Contents/Info.plist"
+
+      - name: Ad-hoc sign app
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/LandlineDerivedData/Build/Products/Release/LandlineMac.app"
+          xattr -cr "$APP"
+          codesign --force --deep --sign - --options runtime --timestamp=none --entitlements LandlineMac/LandlineMac.entitlements "$APP"
+          codesign --verify --deep --strict --verbose=4 "$APP"
+          codesign -dv --verbose=4 "$APP" 2>&1 | tee "$RUNNER_TEMP/codesign.txt"
+          test -d "$APP/Contents/_CodeSignature"
+
+      - name: Package and verify ZIP round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/LandlineDerivedData/Build/Products/Release/LandlineMac.app"
+          ZIP='LandlineMac-Universal-signed-icon-fix.zip'
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+          shasum -a 256 "$ZIP" > "$ZIP.sha256"
+          ROUNDTRIP="$RUNNER_TEMP/roundtrip"
+          rm -rf "$ROUNDTRIP"
+          mkdir -p "$ROUNDTRIP"
+          ditto -x -k "$ZIP" "$ROUNDTRIP"
+          test -f "$ROUNDTRIP/LandlineMac.app/Contents/Resources/AppIcon.icns"
+          codesign --verify --deep --strict --verbose=4 "$ROUNDTRIP/LandlineMac.app"
+          file "$ROUNDTRIP/LandlineMac.app/Contents/MacOS/LandlineMac"
+
+      - name: Upload repaired build
+        uses: actions/upload-artifact@v4
+        with:
+          name: LandlineMac-Universal-signed-icon-fix
+          path: |
+            LandlineMac-Universal-signed-icon-fix.zip
+            LandlineMac-Universal-signed-icon-fix.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit restored AppIcon assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/mac-icon-sign-repair.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add LandlineMac/Assets.xcassets/AppIcon.appiconset .github/workflows/
+          git commit -m "Restore macOS app icon assets"
+          git push origin HEAD:main
