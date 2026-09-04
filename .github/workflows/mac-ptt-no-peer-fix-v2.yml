@@ -97,18 +97,16 @@ jobs:
 
           ui_path = Path('LandlineMac/ContentView.swift')
           ui = ui_path.read_text()
-          old_geometry = '''    private func avatarOffset(index: Int, count: Int, radius: CGFloat) -> CGSize {
-              let angle = (Double(index) / Double(count)) * 2 * Double.pi - Double.pi / 2
-              return CGSize(width: cos(angle) * radius, height: sin(angle) * radius)
-          }
-          '''
-          new_geometry = '''    private func avatarOffset(index: Int, count: Int, radius: CGFloat) -> CGSize {
-              let angle = (CGFloat(index) / CGFloat(count)) * 2 * .pi - .pi / 2
-              return CGSize(width: CoreGraphics.cos(angle) * radius, height: CoreGraphics.sin(angle) * radius)
-          }
-          '''
-          if old_geometry not in ui:
-              raise SystemExit('Expected avatarOffset block was not found; refusing to patch.')
+          old_geometry = (
+              '        let angle = (Double(index) / Double(count)) * 2 * Double.pi - Double.pi / 2\n'
+              '        return CGSize(width: cos(angle) * radius, height: sin(angle) * radius)'
+          )
+          new_geometry = (
+              '        let angle = (CGFloat(index) / CGFloat(count)) * 2 * .pi - .pi / 2\n'
+              '        return CGSize(width: CoreGraphics.cos(angle) * radius, height: CoreGraphics.sin(angle) * radius)'
+          )
+          if ui.count(old_geometry) != 1:
+              raise SystemExit(f'Expected one avatarOffset body, found {ui.count(old_geometry)}.')
           ui_path.write_text(ui.replace(old_geometry, new_geometry, 1))
           PY
           git diff --check
