@@ -83,7 +83,8 @@ jobs:
       - name: Build Universal Release
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
+          rm -f "$RUNNER_TEMP/xcodebuild.log"
           xcodebuild \
             -project LandlineMac.xcodeproj \
             -scheme LandlineMac \
@@ -95,7 +96,28 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             'ARCHS=arm64 x86_64' \
             CODE_SIGNING_ALLOWED=NO \
-            clean build
+            clean build 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Persist build diagnostics on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs
+          {
+            echo '# Last macOS CI build failure'
+            echo
+            echo 'Generated automatically from the failed Universal Release build.'
+            echo
+            echo '```text'
+            grep -n -E '(^|[[:space:]])(error:|fatal error:)|BUILD FAILED|The following build commands failed|Command .* failed' "$RUNNER_TEMP/xcodebuild.log" | tail -n 120 || tail -n 160 "$RUNNER_TEMP/xcodebuild.log"
+            echo '```'
+          } > docs/CI_LAST_MAC_BUILD_FAILURE.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/CI_LAST_MAC_BUILD_FAILURE.md
+          git commit -m "Record macOS CI build failure" || exit 0
+          git push origin HEAD:main
 
       - name: Verify icon and Universal binary
         shell: bash
@@ -155,8 +177,9 @@ jobs:
         run: |
           set -euo pipefail
           rm -f .github/workflows/mac-icon-sign-repair.yml
+          rm -f docs/CI_LAST_MAC_BUILD_FAILURE.md
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add LandlineMac/Assets.xcassets/AppIcon.appiconset .github/workflows/
+          git add LandlineMac/Assets.xcassets/AppIcon.appiconset .github/workflows/ docs/CI_LAST_MAC_BUILD_FAILURE.md || true
           git commit -m "Restore macOS app icon assets"
           git push origin HEAD:main
