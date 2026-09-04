@@ -18,11 +18,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Select Xcode 15.4
+      - name: Select Xcode 16.2
         shell: bash
         run: |
           set -euo pipefail
-          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+          sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
           xcodebuild -version
           swift --version
 
@@ -116,9 +116,12 @@ jobs:
             -project LandlineMac.xcodeproj \
             -scheme LandlineMac \
             -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
             -derivedDataPath "$RUNNER_TEMP/LandlineDerivedData" \
             -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
             -disableAutomaticPackageResolution \
+            ONLY_ACTIVE_ARCH=YES \
+            ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO \
             clean build
 
