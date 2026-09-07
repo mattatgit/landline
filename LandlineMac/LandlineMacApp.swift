@@ -177,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         host.buttons = buttons
+        host.installHoverOverlay()
         host.needsLayout = true
         host.layoutSubtreeIfNeeded()
     }
@@ -286,8 +287,6 @@ private final class LandlineVisualRootView: NSView {
         super.viewDidMoveToWindow()
         effectView.state = .active
     }
-
-
 }
 
 /// Hosts three caller-owned native NSWindow standard buttons in the 64 × 24
@@ -295,8 +294,43 @@ private final class LandlineVisualRootView: NSView {
 /// in their AppKit-owned hierarchy instead of being re-parented here.
 private final class TrafficLightHostView: NSView {
     var buttons: [NSButton] = []
+    private var hoverTrackingArea: NSTrackingArea?
+    private let hoverOverlay = TrafficLightHoverOverlayView(frame: .zero)
+
     override var isOpaque: Bool { false }
     override var isFlipped: Bool { true }
+
+    func installHoverOverlay() {
+        hoverOverlay.removeFromSuperview()
+        hoverOverlay.frame = bounds
+        hoverOverlay.autoresizingMask = [.width, .height]
+        addSubview(hoverOverlay, positioned: .above, relativeTo: nil)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hoverOverlay.isHovering = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoverOverlay.isHovering = false
+    }
 
     override func layout() {
         super.layout()
@@ -312,6 +346,73 @@ private final class TrafficLightHostView: NSView {
                 y: round(12 - size.height / 2)
             ))
         }
+
+        hoverOverlay.frame = bounds
+    }
+}
+
+/// Detached standard window buttons keep AppKit's native coloured circles and
+/// click behavior, but AppKit's group-hover glyphs depend on private title-bar
+/// coordination. Recreate only those tiny rollover glyphs using public AppKit,
+/// in a transparent non-interactive overlay so the real buttons remain clickable.
+private final class TrafficLightHoverOverlayView: NSView {
+    var isHovering = false {
+        didSet {
+            if oldValue != isHovering {
+                needsDisplay = true
+            }
+        }
+    }
+
+    override var isOpaque: Bool { false }
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard isHovering else { return }
+
+        let glyphColor = NSColor.black.withAlphaComponent(0.58)
+        glyphColor.setStroke()
+
+        drawCloseGlyph(at: NSPoint(x: 12, y: 12))
+        drawMinusGlyph(at: NSPoint(x: 32, y: 12))
+        drawPlusGlyph(at: NSPoint(x: 52, y: 12))
+    }
+
+    private func configuredPath() -> NSBezierPath {
+        let path = NSBezierPath()
+        path.lineWidth = 1.15
+        path.lineCapStyle = .round
+        return path
+    }
+
+    private func drawCloseGlyph(at center: NSPoint) {
+        let path = configuredPath()
+        path.move(to: NSPoint(x: center.x - 2.0, y: center.y - 2.0))
+        path.line(to: NSPoint(x: center.x + 2.0, y: center.y + 2.0))
+        path.move(to: NSPoint(x: center.x + 2.0, y: center.y - 2.0))
+        path.line(to: NSPoint(x: center.x - 2.0, y: center.y + 2.0))
+        path.stroke()
+    }
+
+    private func drawMinusGlyph(at center: NSPoint) {
+        let path = configuredPath()
+        path.move(to: NSPoint(x: center.x - 2.5, y: center.y))
+        path.line(to: NSPoint(x: center.x + 2.5, y: center.y))
+        path.stroke()
+    }
+
+    private func drawPlusGlyph(at center: NSPoint) {
+        let path = configuredPath()
+        path.move(to: NSPoint(x: center.x - 2.25, y: center.y))
+        path.line(to: NSPoint(x: center.x + 2.25, y: center.y))
+        path.move(to: NSPoint(x: center.x, y: center.y - 2.25))
+        path.line(to: NSPoint(x: center.x, y: center.y + 2.25))
+        path.stroke()
     }
 }
 
