@@ -13,9 +13,9 @@ Do not return to ZIP-file exchange as the normal development workflow. If a loca
 The repository currently has two active branches:
 
 - `main` — current macOS working baseline and the canonical continuity documentation.
-- `linux-nix` — first native Linux/NixOS port and its CI/build tooling.
+- `linux-nix` — active native Linux/NixOS port and its CI/build tooling.
 
-There is not yet a formal `develop` branch workflow for Landline. Do not assume the Dialogue branch model applies automatically.
+There is not yet a formal `develop` branch workflow for Landline.
 
 For focused future work, temporary `feature/*` branches or pull requests may be useful, but the intended target branch should be chosen based on platform:
 
@@ -38,9 +38,28 @@ When changing the macOS app:
 3. preserve `docs/PROTOCOL.md` compatibility unless intentionally versioning the protocol;
 4. test PTT start/end behavior and remote playback;
 5. check profile persistence/exchange when touching hello/profile code;
-6. verify glass/window behavior separately from network behavior.
+6. verify glass/window behavior separately from network behavior;
+7. when changing microphone permission or capture startup, explicitly test the first-permission path after resetting TCC state.
 
 The older `RelayClient` remains as reference/fallback code. Do not accidentally reconnect the main UI to it when changing transport code unless that is the explicit task.
+
+### Current macOS packaging constraint
+
+The verified downloadable build is Apple Silicon arm64 for macOS 15+.
+
+The current pinned `iroh-ffi` dependency provides an `aarch64-apple-darwin` macOS build but not an x86_64 macOS slice. Do not label or package the current app as Universal unless the Iroh dependency strategy changes or a compatible x86_64 slice is produced separately.
+
+The current Release pipeline verifies the generated app icon, arm64 executable, ad-hoc signature, ZIP packaging and post-extraction signature integrity. Ad-hoc signing is appropriate for test builds but is not a substitute for Developer ID signing and notarization.
+
+### Current microphone-permission regression test
+
+The Swift 6 first-use microphone permission crash is fixed in source. To exercise the original failure path on a real Mac:
+
+```sh
+tccutil reset Microphone com.landline.prototype.mac
+```
+
+Then launch the current build and verify that the permission prompt appears without a crash, microphone access can be allowed, PTT stays active for the full hold, the VU responds, and subsequent PTT holds behave normally.
 
 ## Linux/NixOS build
 
@@ -57,11 +76,14 @@ Useful compiler/build checks:
 ```sh
 nix develop --command cargo check --manifest-path LandlineNix/Cargo.toml
 nix develop --command cargo build --release --manifest-path LandlineNix/Cargo.toml
+nix build .#landline -L
 ```
 
 The Nix flake and Rust lockfile are committed to make builds reproducible.
 
-The `linux-nix` GitHub Actions workflow performs a full release build inside the Nix development shell. Keep that gate working when changing Rust dependencies, Nix libraries or Linux UI/audio code.
+The current `linux-nix` GitHub Actions workflow performs a full release build inside the Nix development shell, deliberately repeats the release build in the same target tree to catch stale generated-file permission problems, and builds the Nix application package. The latest run at the current branch head is successful.
+
+Keep that gate working when changing Rust dependencies, Nix libraries, generated resources or Linux UI/audio code.
 
 ## Cross-platform test sequence
 
@@ -76,26 +98,29 @@ When changing transport/audio code, test in increasing order of complexity:
 7. for cross-platform work, test Mac ↔ NixOS;
 8. inspect direct/relay route diagnostics when investigating connectivity/latency.
 
+Mac ↔ NixOS connection by endpoint ID and two-way PTT audio are already proven. Future transport changes should preserve that working baseline.
+
 Avoid changing UI polish and transport fundamentals in the same debugging pass when that would make failures difficult to isolate.
 
-## Linux first-port validation
+## Linux runtime/parity validation
 
-The first real NixOS test should record:
+The initial NixOS runtime/interoperability milestone has been completed. Real Mac ↔ NixOS two-way audio is proven.
+
+The remaining Linux parity/runtime pass should record:
 
 - NixOS version;
-- desktop/compositor (for example Plasma/KWin, GNOME/Mutter, Hyprland);
+- desktop/compositor;
 - Wayland or X11;
-- audio stack/device behavior;
-- whether microphone capture starts successfully;
-- whether playback is audible and volume behaves correctly;
-- whether custom minimize/maximize/close controls work;
-- whether dragging the undecorated window works;
-- stable endpoint ID across relaunch;
-- successful/failed Mac ↔ Nix connection;
-- PTT/audio direction(s) that work or fail;
-- visible route/relay information where available.
+- opacity/theme behavior;
+- Profile sheet shadow/backdrop behavior;
+- image picker and drag/drop stability;
+- local avatar persistence after relaunch;
+- remote-avatar display from a connected Mac peer;
+- custom minimize/maximize/close behavior;
+- window dragging behavior;
+- any start-of-PTT audio crackle and whether it is capture- or playback-side.
 
-Summarize the result in `docs/CURRENT.md` immediately after a meaningful test milestone.
+Summarize meaningful results in `docs/CURRENT.md` immediately after each milestone.
 
 ## Protocol changes
 
