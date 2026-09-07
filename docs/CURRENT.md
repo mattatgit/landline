@@ -43,6 +43,7 @@ Current implementation:
 - replaces deprecated `NSApp.activate(ignoringOtherApps:)` with `NSApp.activate()`;
 - locks the outer window to 320 × 672 using identical `minSize`/`maxSize` while retaining `.resizable` only for the normal active green native-button appearance;
 - disables full-screen behavior with `.fullScreenNone`.
+- recreates traffic-light group-hover glyphs in a non-interactive public-AppKit overlay using the approved centered 8 × 8 SVG-derived X, minus and maximise vector paths/colors.
 
 The replacement completed an Apple Silicon Release build in GitHub Actions on 2026-09-07, then passed app/icon verification, arm64 verification, ad-hoc signing, ZIP packaging, ZIP extraction and post-extraction signature verification.
 
