@@ -148,6 +148,18 @@ This routing is a platform adaptation, not a transport difference.
 
 The SwiftUI root intentionally uses the full 320 × 672 design area. AppKit provides the window/backdrop surface beneath SwiftUI so an opaque SwiftUI root does not block desktop sampling.
 
+The outer AppKit window is deliberately fixed at 320 × 672. It retains `.resizable` in the style mask so AppKit produces the normal active green native window-control appearance, but `minSize` and `maxSize` are both set to the design size and full-screen behavior is disabled with `.fullScreenNone`.
+
+The macOS traffic lights use caller-owned native standard buttons rather than re-parenting the three instances owned by AppKit's title-bar/theme-frame hierarchy:
+
+- AppKit's window-owned close/minimize/zoom buttons remain in their normal hierarchy and are hidden;
+- Landline creates three new native buttons with `NSWindow.standardWindowButton(_:for:)`;
+- those buttons are targeted at the Landline window and hosted inside the 64 × 24 Figma control region;
+- button centres remain fixed at x=12/32/52 and y=12 inside that host;
+- the former `+1/-1` live-window resize nudge, manual `updateTrackingAreas()` calls and `windowDidBecomeMain` repair path have been removed.
+
+This architecture avoids relying on private `_NSThemeFrame` ownership behavior while retaining AppKit-rendered controls. The replacement passed an Apple Silicon Release compile/package/signature validation on 2026-09-07. Real-Mac validation is still required for group-hover appearance, inactive-window appearance, close/minimize/green-button behavior, appearance changes, sleep/wake and long-running traffic-light position stability.
+
 ### Linux
 
 The first port uses an undecorated eframe window and custom-painted window controls in the same design region used by the macOS traffic-light backing. Final glass/translucency behavior may need compositor-specific treatment and should not compromise the cross-platform layout contract merely to imitate one desktop environment.
