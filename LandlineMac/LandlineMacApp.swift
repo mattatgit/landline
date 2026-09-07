@@ -21,7 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow?
     private var visualRoot: LandlineVisualRootView?
     private var trafficHost: TrafficLightHostView?
-    private var refreshingTrafficTracking = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -40,6 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         )
         let outerFrame = NSRect(origin: origin, size: designSize)
 
+        // Keep .resizable in the style mask so AppKit supplies the normal active
+        // green standard-window-button appearance. The actual window is locked
+        // below with identical minimum/maximum frame sizes and full screen is
+        // disabled, so the Landline canvas remains exactly 320 × 672.
         let style: NSWindow.StyleMask = [
             .titled,
             .closable,
@@ -62,6 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         landlineWindow.titlebarAppearsTransparent = true
         landlineWindow.titlebarSeparatorStyle = .none
         landlineWindow.toolbar = nil
+
+        // Lock the outer AppKit frame to the fixed Figma canvas while retaining
+        // native standard-button styling from a resizable window style.
+        landlineWindow.minSize = designSize
+        landlineWindow.maxSize = designSize
+        landlineWindow.collectionBehavior.insert(.fullScreenNone)
 
         // A behind-window NSVisualEffectView only works as intended when the
         // containing window itself contributes no opaque backing surface.
@@ -96,15 +105,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.visualRoot = root
         self.window = landlineWindow
 
-        landlineWindow.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        // Do not re-parent the window-owned traffic lights. AppKit may rebuild
+        // its title-bar/theme-frame hierarchy over a long-running session and
+        // reclaim those instances. Instead, hide AppKit's originals and create
+        // independent native standard buttons intended for a caller-owned view.
+        installNativeWindowButtons()
 
-        DispatchQueue.main.async { [weak self] in
-            self?.installNativeWindowButtons()
-            self?.refreshNativeButtonTrackingAreas()
-            self?.logWindowGeometry()
-            self?.window?.invalidateShadow()
-        }
+        landlineWindow.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        logWindowGeometry()
+        landlineWindow.invalidateShadow()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -125,15 +135,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // secondary child-window frame to keep in sync while moving.
     }
 
-    func windowDidBecomeMain(_ notification: Notification) {
-        // AppKit can rebuild title-bar tracking when a window becomes main.
-        // Refresh once more so the native rollover region stays attached to
-        // the buttons' custom Figma location.
-        DispatchQueue.main.async { [weak self] in
-            self?.refreshNativeButtonTrackingAreas()
-        }
-    }
-
     private func installNativeWindowButtons() {
         guard let window,
               let container = window.contentView
@@ -147,23 +148,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         positionTrafficHost()
 
         let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-        let buttons = types.compactMap { window.standardWindowButton($0) }
 
-        for button in buttons {
-            button.removeFromSuperview()
+        // Leave the genuine window-owned instances in AppKit's title-bar
+        // hierarchy. Hiding them avoids duplicate traffic lights while allowing
+        // AppKit to continue owning/rebuilding its private theme-frame contents.
+        types.forEach { window.standardWindowButton($0)?.isHidden = true }
+
+        // This type method returns *new* native standard buttons sized for the
+        // requested window style. AppKit documents these as caller-owned: we add
+        // them to our hierarchy and point their existing native actions at this
+        // Landline window rather than stealing the theme-frame instances.
+        let buttons = types.compactMap { type -> NSButton? in
+            guard let button = NSWindow.standardWindowButton(type, for: window.styleMask) else {
+                return nil
+            }
+
+            button.target = window
             button.translatesAutoresizingMaskIntoConstraints = true
             button.autoresizingMask = []
             button.isHidden = false
             button.isEnabled = true
             host.addSubview(button)
+            return button
+        }
+
+        if buttons.count != types.count {
+            NSLog("Landline: expected 3 detached native traffic-light buttons, got %ld", buttons.count)
         }
 
         host.buttons = buttons
         host.needsLayout = true
         host.layoutSubtreeIfNeeded()
-
-        // Ask the buttons themselves to rebuild any local tracking first.
-        buttons.forEach { $0.updateTrackingAreas() }
     }
 
     private func positionTrafficHost() {
@@ -178,28 +193,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         trafficHost.frame = NSRect(x: 24, y: y, width: 64, height: 24)
         trafficHost.needsLayout = true
         trafficHost.layoutSubtreeIfNeeded()
-    }
-
-    /// Re-parenting genuine NSWindow buttons can leave AppKit's old title-bar
-    /// rollover tracking rectangle cached. A no-visible-change +1/-1 pt frame
-    /// cycle forces AppKit to rebuild that tracking geometry, a long-standing
-    /// Cocoa workaround for moved standard window buttons.
-    private func refreshNativeButtonTrackingAreas() {
-        guard let window, !refreshingTrafficTracking else { return }
-        refreshingTrafficTracking = true
-
-        let original = window.frame
-        var nudge = original
-        nudge.size.width += 1
-        window.setFrame(nudge, display: false, animate: false)
-        window.setFrame(original, display: false, animate: false)
-
-        positionTrafficHost()
-        trafficHost?.buttons.forEach {
-            $0.updateTrackingAreas()
-            $0.needsDisplay = true
-        }
-        refreshingTrafficTracking = false
     }
 
     private func logWindowGeometry() {
@@ -297,9 +290,9 @@ private final class LandlineVisualRootView: NSView {
 
 }
 
-/// Hosts the three *real* NSWindow standard buttons in the 64 × 24 Figma
-/// control region. Keeping this view tiny prevents it intercepting any other
-/// Landline controls.
+/// Hosts three caller-owned native NSWindow standard buttons in the 64 × 24
+/// Figma control region. The window's genuine theme-frame buttons remain hidden
+/// in their AppKit-owned hierarchy instead of being re-parented here.
 private final class TrafficLightHostView: NSView {
     var buttons: [NSButton] = []
     override var isOpaque: Bool { false }
