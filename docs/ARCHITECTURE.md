@@ -84,10 +84,10 @@ There is currently no central speaker arbiter in the Iroh path.
 
 For the one-to-one build:
 
-- local PTT is granted immediately if connected and the peer is not already marked as speaking;
-- `pttBegin` announces local transmission;
-- audio frames follow while the local capture is active;
-- `pttEnd` clears the speaking state.
+- local PTT is allowed when the local endpoint is ready and the remote peer is not already marked as speaking;
+- local microphone capture and talking state may remain active with no peer connected;
+- `pttBegin`, audio and `pttEnd` are sent only when a peer/send stream exists;
+- remote speaking state blocks local PTT in the current one-to-one arbitration model.
 
 This is sufficient for the current one-to-one proof but should be revisited when transport expands to multiple remote peers or simultaneous connection topologies.
 
@@ -103,6 +103,8 @@ This is sufficient for the current one-to-one proof but should be revisited when
 
 A bounded mailbox sits between the realtime audio callback and the async network sender so network stalls discard older frames rather than allowing latency to grow indefinitely.
 
+Initial microphone permission is requested through AVFoundation's native async API. This avoids the Swift 6 actor-isolation runtime trap that occurred when the completion-handler API inherited `@MainActor` isolation and was invoked by TCC on a background callback queue.
+
 ### Linux capture/playback
 
 The Linux client uses CPAL for microphone capture and Rodio for playback while preserving the same Landline network packet representation. Platform audio-device behavior can differ, so runtime issues such as start-of-PTT transients should be investigated at the capture/playback boundary without changing the wire protocol unless evidence requires it.
@@ -115,6 +117,8 @@ The receiver parses the audio packet header and schedules/plays the mono PCM at 
 
 Linux must remain byte-compatible with the macOS audio packet format described in `docs/PROTOCOL.md` unless both clients are deliberately versioned together.
 
+Real macOS ↔ NixOS connection and two-way PTT audio have already been proven in runtime testing.
+
 ## Profile exchange
 
 The Iroh hello payload carries:
@@ -126,7 +130,7 @@ The Iroh hello payload carries:
 
 Both macOS and the current Linux parity implementation can send a JPEG avatar encoded as Base64 using the existing `avatarKind = jpeg` / `avatarData` contract. The Linux client centre-crops selected PNG/JPEG images, prepares a compact JPEG representation for persistence/transmission, and renders a local texture for the 12-o'clock avatar.
 
-Remote-avatar display parity on Linux is still separate from the ability to transmit the Linux user's avatar to a macOS peer.
+The Linux receive path now retains remote avatar data and decodes it into a remote avatar texture for display. Full real-desktop confirmation of remote-avatar rendering remains part of the current Linux parity/runtime pass.
 
 ## Settings/UI routing architecture
 
@@ -148,13 +152,15 @@ The SwiftUI root intentionally uses the full 320 × 672 design area. AppKit prov
 
 The first port uses an undecorated eframe window and custom-painted window controls in the same design region used by the macOS traffic-light backing. Final glass/translucency behavior may need compositor-specific treatment and should not compromise the cross-platform layout contract merely to imitate one desktop environment.
 
-The Linux Profile sheet now follows the same 320 × 584 / y=88 geometry and core interaction hierarchy as macOS, while native AppKit-quality backdrop blur remains compositor-specific follow-up work.
+The Linux Profile sheet follows the same 320 × 584 / y=88 geometry and core interaction hierarchy as macOS, while native AppKit-quality backdrop blur remains compositor-specific follow-up work.
 
 ## Linux resources and font packaging
 
 Visual assets that are common to the product should be shared from the same supplied artwork rather than redrawn independently on Linux. The current Linux client carries copies of the established LANDLINE title SVG, muted/on PTT SVGs and profile artwork under `LandlineNix/assets/` and renders them through egui image loaders.
 
 Landline should not depend on the host Linux desktop having the design fonts installed. The current Nix build selects Inter and Inter Tight from Nixpkgs/Google Fonts through `flake.nix`. `LandlineNix/build.rs` locates those font files during compilation and copies them into Cargo's build output, where `include_bytes!` embeds them into the executable. egui then registers the embedded font data when the application starts.
+
+The Linux CI workflow explicitly verifies repeated release source builds in the same target tree and also builds the Nix application package, guarding against the earlier generated-font permission issue.
 
 This gives the Linux binary deterministic Landline typography while avoiding a user-level/system-wide font installation requirement. If a future distributable uses an AppImage, Flatpak or another bundle format, the same principle applies: fonts are application resources, not a desktop prerequisite.
 
