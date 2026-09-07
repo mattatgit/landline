@@ -19,14 +19,42 @@ The current macOS source is the integrated build historically called **Landline 
 
 Current macOS behavior:
 
-- 320 × 672 custom SwiftUI/AppKit window with native glass/backdrop treatment.
-- local user fixed at 12 o'clock; seven remote dial positions reserved for the intended eight-person product model.
-- Profile sheet with persisted name/avatar state.
-- press-and-hold PTT, status panel, volume and VU meter.
-- persistent Iroh endpoint identity and manual endpoint-ID connection.
-- current transport is deliberately one-to-one; Iroh selects direct versus relay paths.
-- Iroh connection/diagnostics live in the macOS Settings scene, not behind Profile.
+- fixed 320 × 672 custom SwiftUI/AppKit window with native glass/backdrop treatment;
+- local user fixed at 12 o'clock; seven remote dial positions reserved for the intended eight-person product model;
+- Profile sheet with persisted name/avatar state;
+- press-and-hold PTT, status panel, volume and VU meter;
+- persistent Iroh endpoint identity and manual endpoint-ID connection;
+- current transport is deliberately one-to-one; Iroh selects direct versus relay paths;
+- Iroh connection/diagnostics live in the macOS Settings scene, not behind Profile;
 - older `RelayClient` remains only as fallback/reference; current audio uses `IrohClient`.
+
+### macOS traffic-light drift repair — source fixed, build passed, runtime longevity test pending
+
+A long-running macOS UI regression could move the close/minimize/zoom traffic lights up and left after the app had remained open for some time. The previous implementation took the actual `NSWindow.standardWindowButton(_:)` instances out of AppKit's title-bar/theme-frame hierarchy and re-parented them into Landline's 64 × 24 Figma host. It also used a `+1/-1` live-window resize nudge and direct `updateTrackingAreas()` calls to repair hover tracking.
+
+That architecture has now been replaced.
+
+Current implementation:
+
+- leaves AppKit's window-owned standard buttons in their normal title-bar hierarchy and hides them;
+- creates three independent native standard controls with `NSWindow.standardWindowButton(_:for:)`;
+- targets those caller-owned controls at the Landline window and hosts them at the established Figma centres;
+- removes the `+1/-1` frame nudge, direct `updateTrackingAreas()` calls, `refreshingTrafficTracking`, `windowDidBecomeMain` repair path and run-loop-delayed install hack;
+- replaces deprecated `NSApp.activate(ignoringOtherApps:)` with `NSApp.activate()`;
+- locks the outer window to 320 × 672 using identical `minSize`/`maxSize` while retaining `.resizable` only for the normal active green native-button appearance;
+- disables full-screen behavior with `.fullScreenNone`.
+
+The replacement completed an Apple Silicon Release build in GitHub Actions on 2026-09-07, then passed app/icon verification, arm64 verification, ad-hoc signing, ZIP packaging, ZIP extraction and post-extraction signature verification.
+
+Runtime validation still needs to confirm:
+
+- exact initial traffic-light placement;
+- native hover/group-hover appearance;
+- inactive-window appearance;
+- close, minimize and green-button behavior;
+- inability to resize/full-screen the Landline canvas;
+- stability through manual light/dark appearance changes, app deactivate/reactivate, sleep/wake and display changes;
+- no recurrence of traffic-light drift after several hours/overnight.
 
 ### No-peer PTT regression — fixed and runtime confirmed
 
@@ -136,16 +164,17 @@ Longer-term direction discussed: persistent Landline user/contact identities, in
 
 ## UI conventions to preserve
 
-- local user stays at 12 o'clock.
-- PTT is press-and-hold.
-- endpoint-online users can hold PTT even when no peers are online.
-- suppress remote speaking indicators while local user is talking.
-- speaking badge uses four centered animated bars in a 24 × 24 green circle.
-- status text uses Medium weight; do not selectively bold the speaker name.
-- muted PTT hover may say `Click to talk` but must not swap the muted icon to active.
-- Profile button hover scales the full 24 px button.
-- Profile opens Profile on both platforms; networking settings belong in Settings/app menu.
-- preserve established sheet geometry/hierarchy first; platform-specific blur/glass may differ.
+- local user stays at 12 o'clock;
+- PTT is press-and-hold;
+- endpoint-online users can hold PTT even when no peers are online;
+- suppress remote speaking indicators while local user is talking;
+- speaking badge uses four centered animated bars in a 24 × 24 green circle;
+- status text uses Medium weight; do not selectively bold the speaker name;
+- muted PTT hover may say `Click to talk` but must not swap the muted icon to active;
+- Profile button hover scales the full 24 px button;
+- Profile opens Profile on both platforms; networking settings belong in Settings/app menu;
+- preserve established sheet geometry/hierarchy first; platform-specific blur/glass may differ;
+- macOS traffic lights stay at the established Figma centres and should use caller-owned native standard buttons rather than re-parenting AppKit's window-owned instances.
 
 ## Design reference
 
@@ -157,19 +186,25 @@ When implementation and visual intent disagree, inspect the relevant Figma frame
 
 ## Current next step
 
-Runtime-test the **microphone permission crash fix** on a real Apple Silicon Mac.
+Runtime-test the new **macOS traffic-light drift repair** and the already-built **microphone permission crash fix** on a real Apple Silicon Mac.
 
-Because the existing bundle may already have microphone permission, reset that permission first so the first-request code path runs again:
+Traffic-light pass:
 
-`tccutil reset Microphone com.landline.prototype.mac`
+1. launch the new traffic-light-fix build and confirm all three controls start in the exact intended top-left position;
+2. confirm hover/group-hover and inactive-window appearance still look native;
+3. verify close and minimize behavior and note exactly what the green button does;
+4. confirm the Landline window cannot be user-resized or taken full screen;
+5. manually switch light ↔ dark appearance, deactivate/reactivate Landline, sleep/wake the Mac, and connect/disconnect a display if practical;
+6. leave Landline open for several hours/overnight and confirm the traffic lights never move up/left.
 
-Then:
+Microphone first-permission pass:
 
-1. launch the new fixed build;
-2. with no peers connected, press and hold PTT;
-3. confirm macOS presents the microphone permission prompt without Landline crashing;
-4. allow microphone access and confirm PTT remains in `You are talking` for the full hold and the VU responds;
-5. release and repeat PTT several times;
-6. reconnect a peer and verify normal two-way PTT still works.
+1. run `tccutil reset Microphone com.landline.prototype.mac`;
+2. launch the fixed build;
+3. with no peers connected, press and hold PTT;
+4. confirm macOS presents the microphone permission prompt without Landline crashing;
+5. allow microphone access and confirm PTT remains in `You are talking` for the full hold and the VU responds;
+6. release and repeat PTT several times;
+7. reconnect a peer and verify normal two-way PTT still works.
 
-After that, continue the Linux parity/runtime pass and investigate the occasional start-of-PTT crackle if reproducible.
+After those macOS runtime checks, continue the Linux parity/runtime pass and investigate the occasional start-of-PTT crackle if reproducible.
