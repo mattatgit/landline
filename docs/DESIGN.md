@@ -118,7 +118,16 @@ Linux/NixOS glass should be treated as a separate implementation problem. Preser
 
 ## Window controls
 
-macOS uses the standard traffic-light positions inside a 64 × 24 top-left backing area.
+macOS uses native traffic lights inside the 64 × 24 top-left backing area, with button centres fixed at x=12/32/52 and y=12 within that region.
+
+To preserve those exact Figma positions without fighting AppKit's private title-bar hierarchy:
+
+- do not remove or re-parent the three window-owned standard buttons;
+- leave those AppKit-owned instances in the title-bar hierarchy and hide them;
+- create caller-owned native standard buttons with `NSWindow.standardWindowButton(_:for:)` and place those in Landline's traffic-light host;
+- do not restore the former live-window resize nudge or manual tracking-area refresh workaround merely to move native controls.
+
+The macOS outer window remains fixed at 320 × 672. The implementation currently retains the resizable style only to preserve the normal native green-button appearance, while identical minimum/maximum frame sizes prevent user resizing and full-screen mode is disabled.
 
 The first Linux port deliberately places neutral minimize / maximize / close controls at the same control centres inside that same backing region. Linux control styling may evolve, but the top-left footprint should remain compatible with the established Landline composition unless the overall design changes.
 
