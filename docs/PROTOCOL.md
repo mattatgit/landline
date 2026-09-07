@@ -49,7 +49,7 @@ Do not reorder/reuse these numeric values inside protocol version 1.
 
 ## Hello payload
 
-The macOS implementation encodes a JSON object with these fields:
+Both current platform implementations use a JSON object with these fields:
 
 ```json
 {
@@ -66,14 +66,17 @@ Current behavior:
 - `name` is normalized by the receiving client.
 - `avatarKind = "jpeg"` means `avatarData` contains a Base64 JPEG.
 - default-avatar state uses `avatarKind = "default"` and no image bytes.
-- the macOS sender currently renders custom avatars to a 128 × 128 JPEG before Base64 encoding.
-- the first Linux port supports the profile/name exchange but does not yet provide complete avatar parity.
+- the macOS sender renders custom avatars to a 128 × 128 JPEG before Base64 encoding.
+- the Linux client can persist and send its prepared JPEG avatar using the same fields.
+- the Linux receive path now retains remote avatar data and decodes it for UI display.
 
 Both sides send their current hello when a connection is installed so either connection direction populates the peer UI.
 
+Full real-desktop confirmation of Linux remote-avatar presentation remains a UI/runtime validation task, not a protocol gap.
+
 ## PTT sequence
 
-Normal local transmission sequence:
+Normal connected-peer transmission sequence:
 
 ```text
 pttBegin
@@ -81,7 +84,9 @@ zero or more audio frames
 pttEnd
 ```
 
-In the current one-to-one application behavior, a client should not begin local PTT when the connected peer is already marked as transmitting.
+In the current one-to-one application behavior, a client should not begin local PTT while the connected peer is already marked as transmitting.
+
+The macOS client may still enter local capture/talking state when its Iroh endpoint is ready but no peer is connected. In that state no PTT or audio frames are emitted because there is no peer stream. This is an application-state behavior and does not alter the on-wire sequence above.
 
 A future multi-peer speaker-arbitration mechanism may need a protocol extension/version change; do not infer that the current one-to-one local rule is sufficient for eight active peers.
 
@@ -105,11 +110,15 @@ Current audio properties:
 
 The receiver should validate the header/sample count before playback and play/resample as required by its native audio stack.
 
+Mac ↔ Mac cross-network audio and macOS ↔ NixOS two-way PTT/audio have both been proven using protocol version 1.
+
 ## Realtime/latency behavior
 
 The macOS capture path uses a bounded queue between the realtime audio callback and network sending. If networking falls behind, older frames are dropped instead of allowing an ever-growing latency backlog.
 
 Cross-platform implementations should preserve that low-latency principle even if their audio buffering implementation differs.
+
+An occasional brief crackle has been observed around PTT start. Treat capture start, playback start/buffering and device-format negotiation as the first investigation areas before changing the protocol.
 
 ## Ping/pong
 
