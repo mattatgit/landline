@@ -11,7 +11,7 @@ Repository: `mattatgit/landline`
 Active branches:
 
 - `main` — current macOS baseline and project continuity documentation.
-- `linux-nix` — first native Linux/NixOS port, implemented in Rust and kept wire-compatible with the macOS Iroh transport.
+- `linux-nix` — active native Linux/NixOS port, implemented in Rust and kept wire-compatible with the macOS Iroh transport.
 
 Normal development should happen directly from GitHub. ZIP-file exchange is no longer part of the intended workflow.
 
@@ -36,25 +36,46 @@ Current characteristics:
 - Current networking integration is intentionally one-to-one even though the UI preserves the eight-person dial model.
 - Direct versus relay path selection is handled by Iroh.
 - Temporary Iroh diagnostics expose connection path, latency and traffic information.
+- Local PTT can remain active while held even when the endpoint is online but no peer is connected.
+- The Swift 6 first-use microphone permission crash has been fixed in source by using AVFoundation's native async permission API.
 
 The earlier WebSocket/relay implementation remains in the source tree as fallback/reference code, but the current UI sends and receives audio through `IrohClient`.
 
+The current distributable pipeline produces an Apple Silicon arm64 macOS 15+ build. It verifies the app icon, ad-hoc signing, ZIP packaging and post-extraction signature integrity. The current pinned Iroh dependency does not provide an x86_64 macOS slice, so this build must not be described as Universal.
+
+The remaining macOS validation item is a real-device re-test of the initial microphone permission path after resetting TCC state.
+
 ## Current Linux/NixOS implementation
 
-The first Linux port lives on `linux-nix` in `LandlineNix/`.
+The native Linux port lives on `linux-nix` in `LandlineNix/`.
 
 It uses:
 
-- Rust
-- Iroh
+- Rust 1.91 / Rust 2024
+- Iroh 1.0.2
 - eframe/egui for the desktop shell
 - CPAL for microphone capture
 - Rodio for playback
 - Nix flakes for the development/build environment
 
-The Linux port currently reproduces the core 320 × 672 layout, Iroh identity/connection flow, PTT/audio behavior, profile-name exchange, volume control and Linux window controls. Avatar parity and the final compositor-specific glass treatment remain follow-up work.
+The Linux port currently includes:
 
-The `linux-nix` branch has passed both `cargo check` and a full release binary build inside the repository's Nix development shell. Real NixOS runtime testing and Mac ↔ NixOS interoperability testing are the next validation step.
+- the core 320 × 672 layout and custom window controls;
+- shared Landline title/profile/PTT artwork;
+- Inter and Inter Tight embedded into the executable from Nixpkgs at build time;
+- persistent Iroh endpoint identity;
+- one-to-one PTT/audio compatible with the macOS wire protocol;
+- local profile name/avatar persistence;
+- PNG/JPEG avatar selection and drag/drop;
+- Linux avatar JPEG transmission through the existing hello/profile payload;
+- received remote avatar data wired through to the Linux UI;
+- LANDLINE app menu with Iroh Settings… and Quit;
+- Profile button reserved for Profile;
+- a Nix flake and locked dependency set.
+
+Real macOS ↔ NixOS interoperability has been proven: connection by Iroh endpoint ID and two-way PTT audio were usable for normal conversation. The latest Linux parity work still needs full real-desktop confirmation for compositor-dependent opacity/theme behavior, sheet shadow, image-upload stability and remote-avatar display.
+
+The current `linux-nix` GitHub Actions workflow is green at branch head and performs repeated release source builds plus a Nix application package build.
 
 ## NixOS run path
 
@@ -65,6 +86,24 @@ git switch linux-nix
 nix develop
 cargo run --manifest-path LandlineNix/Cargo.toml
 ```
+
+## Proven networking milestones
+
+Two important runtime results are already established:
+
+1. Mac ↔ Mac cross-network audio worked with one laptop on a phone hotspot and the other on a separate network.
+2. macOS ↔ NixOS connection and two-way PTT audio worked on 2026-09-03.
+
+An occasional brief crackle can occur around PTT start. Most audio is otherwise clear. This should be investigated at capture/playback/buffering boundaries before changing the wire protocol.
+
+## Product versus current transport
+
+The intended Landline product remains an eight-person shared dial:
+
+- local user at 12 o'clock;
+- up to seven remote participants.
+
+The current Iroh integration is deliberately one-to-one. That is an integration-stage transport limitation, not a reduction of the intended product model.
 
 ## Project context
 
