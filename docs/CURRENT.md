@@ -2,7 +2,7 @@
 
 This is the concise continuity record for active Landline work. Update it whenever a meaningful milestone, technical decision, known issue, working baseline or next step changes.
 
-Last consolidated: 2026-09-04.
+Last consolidated: 2026-09-07.
 
 ## Repository / branch roles
 
@@ -32,20 +32,20 @@ Current macOS behavior:
 
 A regression caused PTT to flash into talking state and immediately return to muted when the Iroh endpoint was online but no peer was connected. `IrohClient.beginTransmit()` was incorrectly requiring an active peer/send stream.
 
-Current behavior now separates endpoint readiness from peer presence:
+Current behavior separates endpoint readiness from peer presence:
 
 - local PTT is allowed whenever the Iroh endpoint is ready and no remote speaker is active;
 - microphone capture, VU and talking state remain active for the entire hold even with zero peers online;
 - `pttBegin`, audio and `pttEnd` are sent only when a peer exists;
 - remote-speaker arbitration still blocks local PTT when appropriate.
 
-This behavior was runtime-confirmed on a real Apple Silicon Mac on 2026-09-04: PTT could be pressed and held with no peers online and remained active until release.
+This behavior was runtime-confirmed on a real Apple Silicon Mac on 2026-09-04.
 
 ### First microphone permission crash — fixed in source, runtime re-test pending
 
 During the first real-Mac test of the repaired no-peer PTT build, the app crashed once on the first PTT press while macOS was handling the initial microphone permission request.
 
-The crash report showed `EXC_BREAKPOINT / SIGTRAP` on a background TCC callback queue with `_dispatch_assert_queue_fail` and `_swift_task_checkIsolatedSwift`, pointing directly to the completion-handler closure inside `MicrophoneCapture.ensurePermission()`.
+The crash report showed `EXC_BREAKPOINT / SIGTRAP` on a background TCC callback queue with `_dispatch_assert_queue_fail` and `_swift_task_checkIsolatedSwift`, pointing to the completion-handler closure inside `MicrophoneCapture.ensurePermission()`.
 
 Cause: `MicrophoneCapture` is `@MainActor` isolated, while `AVCaptureDevice.requestAccess(for:completionHandler:)` may invoke its callback on a background queue. Under Swift 6, the callback inherited actor isolation and the runtime trapped before the closure body could execute.
 
@@ -55,30 +55,27 @@ Fix:
 - now uses AVFoundation's native async overload: `await AVCaptureDevice.requestAccess(for: .audio)`;
 - permission/UI state continues on the MainActor after the await.
 
-The fixed source completed a full Apple Silicon Release compile in GitHub Actions, then passed app/icon verification, ad-hoc signing, ZIP packaging, ZIP extraction and post-extraction signature verification. Runtime confirmation of the first-permission path still requires resetting microphone permission so macOS presents the prompt again.
+The fixed source completed a full Apple Silicon Release compile in GitHub Actions. Runtime confirmation of the first-permission path still requires resetting microphone permission so macOS presents the prompt again.
 
-### macOS app icon / signing repair — 2026-09-04
+### macOS app icon / signing repair
 
-The previous downloadable build exposed two packaging regressions: the AppIcon asset set had disappeared from `Assets.xcassets`, and the downloadable `.app` was completely unsigned, causing Safari-quarantined copies to be rejected by Gatekeeper as “damaged”.
+The canonical AppIcon set has been regenerated from `LandlineMac/Resources/Landline_app_icon_source.png` and committed to `main`.
 
-The canonical AppIcon set has now been regenerated from `LandlineMac/Resources/Landline_app_icon_source.png` and committed to `main`.
-
-The repaired Apple Silicon Release pipeline now passes all of these checks:
+The repaired Apple Silicon Release pipeline verifies:
 
 - optimized Xcode Release compile;
-- generated `AppIcon.icns`/asset verification;
-- arm64 executable verification;
+- generated `AppIcon.icns`/asset presence;
+- arm64 executable architecture;
 - ad-hoc signing of the completed `.app`;
 - `codesign --verify --deep --strict` before packaging;
 - ZIP packaging with `ditto`;
-- extraction of the final ZIP and a second signature verification after the ZIP round-trip;
-- artifact upload.
+- extraction of the final ZIP and a second signature verification after the ZIP round-trip.
 
 The verified distributable is **Apple Silicon arm64**, macOS 15+.
 
-Important architecture constraint: pinned `iroh-ffi` 1.1.0 builds `aarch64-apple-darwin` for macOS but does not build a `x86_64-apple-darwin` macOS slice. Forcing `ARCHS=arm64 x86_64` therefore fails at link time. Do not label this build Universal unless the Iroh dependency strategy is changed or an x86_64 macOS Iroh slice is built separately.
+Important architecture constraint: pinned `iroh-ffi` 1.1.0 builds `aarch64-apple-darwin` for macOS but does not build a `x86_64-apple-darwin` macOS slice. Do not label this build Universal unless the Iroh dependency strategy is changed or an x86_64 macOS Iroh slice is built separately.
 
-Ad-hoc signing is suitable for test builds but is not Apple notarization. A Safari-downloaded build may still require Right-click → Open or Privacy & Security → Open Anyway on first launch. A warning-free public distribution requires Developer ID signing and Apple notarization.
+Ad-hoc signing is suitable for test builds but is not Apple notarization. A warning-free public distribution requires Developer ID signing and Apple notarization.
 
 ## Proven networking results
 
@@ -110,10 +107,21 @@ Current Linux implementation includes:
 - Profile sheet aligned to the macOS geometry/hierarchy;
 - PNG/JPEG avatar selection and drag/drop;
 - Linux avatar JPEG sent through the existing Hello/profile payload;
-- received remote avatar data is wired through to the Linux UI after an earlier bug discarded it;
+- received remote avatar data retained and decoded into the Linux UI;
 - Nix flake and locked dependency set.
 
-Real macOS ↔ NixOS two-way audio is proven. The latest Linux parity fixes still need full real-desktop confirmation for opacity/theme, sheet shadow, image upload stability and remote-avatar display.
+Real macOS ↔ NixOS two-way audio is proven.
+
+The current `linux-nix` GitHub Actions workflow is green at branch head and verifies repeated release source builds in the same Cargo target tree plus a Nix application package build.
+
+The remaining Linux parity/runtime pass is primarily real-desktop validation for:
+
+- opacity/theme behavior across compositor/desktop combinations;
+- Profile sheet shadow/backdrop treatment;
+- image picker and drag/drop stability;
+- local avatar persistence after relaunch;
+- received remote-avatar display;
+- any reproducible start-of-PTT crackle.
 
 ## Product vs current transport
 
@@ -153,7 +161,7 @@ Runtime-test the **microphone permission crash fix** on a real Apple Silicon Mac
 
 Because the existing bundle may already have microphone permission, reset that permission first so the first-request code path runs again:
 
-` tccutil reset Microphone com.landline.prototype.mac `
+`tccutil reset Microphone com.landline.prototype.mac`
 
 Then:
 
