@@ -1,0 +1,12 @@
+Recreated from surviving LANDLINE prototype assets plus the user-supplied images retained in this conversation.
+
+User-supplied:
+- Stuart.png -> assets/avatar-stuart.png
+- Simple_line.png -> assets/avatar-simple.png
+- Realistic_woman.png -> assets/avatar-realistic.png
+- Toyface.png -> assets/avatar-toyface.png
+- Simple_line_change.png / Simple_line_selected.png
+- Realistic_woman_change.png / Realistic_woman_selected.png
+- Toyface_change.png / Toyface_selected.png
+
+Core UI vectors and earlier avatars were recovered from the surviving LANDLINE v6 artifact.

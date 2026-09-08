@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LANDLINE prototype v22 — Add users flow</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="stage">
+    <section class="landline" aria-label="LANDLINE walkie-talkie prototype">
+      <div class="window-controls" aria-hidden="true">
+        <img src="assets/window-controls.svg" alt="">
+      </div>
+
+      <div class="app-title" aria-label="LANDLINE">
+        <img class="title-speaker left" src="assets/title-volume-left.svg" alt="">
+        <img class="title-bars left" src="assets/title-bars.svg" alt="">
+        <img class="title-word" src="assets/title-landline.svg" alt="LANDLINE">
+        <img class="title-bars right" src="assets/title-bars.svg" alt="">
+        <img class="title-speaker right" src="assets/title-volume-right.svg" alt="">
+      </div>
+
+      <button class="profile" id="profile-button" type="button" aria-label="Profile settings">
+        <img src="assets/profile-icon.svg" alt="">
+      </button>
+
+      <div class="dial">
+        <div class="contact contact-self pos-1" title="You">
+          <img id="self-avatar" src="assets/avatar-saori.png" alt="Your avatar">
+          <span class="speaking-badge self-speaking-badge" aria-label="You are talking">
+            <img class="speaking-disc" src="assets/speaking-disc.svg" alt="">
+            <span class="speaking-lines" aria-hidden="true">
+              <span class="speaking-line speaking-line-1"></span>
+              <span class="speaking-line speaking-line-2"></span>
+              <span class="speaking-line speaking-line-3"></span>
+              <span class="speaking-line speaking-line-4"></span>
+              <span class="speaking-line speaking-line-5"></span>
+            </span>
+          </span>
+        </div>
+
+        <div class="contact offline pos-2" title="Offline">
+          <img src="assets/avatar-micheal.png" alt="Offline contact">
+        </div>
+
+        <div class="contact online pos-3" title="Stuart">
+          <img src="assets/avatar-stuart.png" alt="Stuart">
+          <span class="speaking-badge other-speaking-badge" aria-label="Speaking">
+            <img class="speaking-disc" src="assets/speaking-disc.svg" alt="">
+            <span class="speaking-lines" aria-hidden="true">
+              <span class="speaking-line speaking-line-1"></span>
+              <span class="speaking-line speaking-line-2"></span>
+              <span class="speaking-line speaking-line-3"></span>
+              <span class="speaking-line speaking-line-4"></span>
+              <span class="speaking-line speaking-line-5"></span>
+            </span>
+          </span>
+        </div>
+
+        <button class="contact empty add-slot pos-4" type="button" aria-label="Add someone to Landline" data-slot="4">
+          <img class="empty-hover-art" src="assets/hovered-slot.svg" alt="">
+        </button>
+        <button class="contact empty add-slot pos-5" type="button" aria-label="Add someone to Landline" data-slot="5">
+          <img class="empty-hover-art" src="assets/hovered-slot.svg" alt="">
+        </button>
+        <button class="contact empty add-slot pos-6" type="button" aria-label="Add someone to Landline" data-slot="6">
+          <img class="empty-hover-art" src="assets/hovered-slot.svg" alt="">
+        </button>
+        <button class="contact empty add-slot pos-7" type="button" aria-label="Add someone to Landline" data-slot="7">
+          <img class="empty-hover-art" src="assets/hovered-slot.svg" alt="">
+        </button>
+        <button class="contact empty add-slot pos-8" type="button" aria-label="Add someone to Landline" data-slot="8">
+          <img class="empty-hover-art" src="assets/hovered-slot.svg" alt="">
+        </button>
+
+        <div class="ptt-wrap">
+          <button class="ptt" id="ptt" type="button" aria-label="Push and hold to talk">
+            <img class="ptt-icon ptt-muted" src="assets/mic-muted.svg" alt="Muted">
+            <img class="ptt-icon ptt-live" src="assets/mic-talk.svg" alt="Talking">
+          </button>
+        </div>
+      </div>
+
+      <div class="status" aria-live="polite">
+        <span class="status-icon">
+          <img class="status-muted" src="assets/mic-muted.svg" alt="">
+          <img class="status-hover" src="assets/mic-muted.svg" alt="">
+          <img class="status-live" src="assets/mic-talk.svg" alt="">
+        </span>
+        <span class="status-copy">
+          <span class="copy-muted">You are muted</span>
+          <span class="copy-hover">Click to talk</span>
+          <span class="copy-live">You are talking</span>
+        </span>
+        <span class="status-add-row" aria-hidden="true">
+          <img src="assets/add-user.svg" alt="">
+          <span>Add someone to Landline</span>
+        </span>
+      </div>
+
+      <div class="volume">
+        <div class="volume-row">
+          <span>Volume</span>
+          <output class="volume-value" id="volume-value">25</output>
+        </div>
+        <div class="volume-slider" id="volume-slider" role="slider" tabindex="0"
+             aria-label="Volume" aria-valuemin="0" aria-valuemax="100"
+             aria-valuenow="25" style="--volume:25">
+          <img class="slider-track" src="assets/slider-track.svg" alt="">
+          <span class="slider-progress-clip" aria-hidden="true">
+            <img class="slider-progress" src="assets/slider-progress-full.svg" alt="">
+          </span>
+          <img class="slider-head" src="assets/slider-head.svg" alt="">
+        </div>
+      </div>
+
+      <div class="vu" aria-hidden="true">
+        <div class="vu-bars" id="vu-bars">
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+
+      <div class="profile-overlay" id="profile-overlay" aria-hidden="true">
+        <button class="profile-glass" id="profile-glass" type="button" aria-label="Close profile settings"></button>
+
+        <section class="profile-sheet" id="profile-sheet" aria-label="Profile settings">
+          <div class="profile-step profile-step-name" id="profile-step-name">
+            <h2>Create a profile</h2>
+
+            <button class="nickname-field" id="nickname-field" type="button" aria-label="Enter nickname">
+              <span class="nickname-cursor" aria-hidden="true"></span>
+              <span class="nickname-placeholder">Type your nick name</span>
+              <span class="nickname-value" id="nickname-value">Saori</span>
+            </button>
+
+            <div class="sheet-actions">
+              <button class="sheet-button secondary" id="profile-cancel" type="button">Cancel</button>
+              <button class="sheet-button primary" id="profile-next" type="button" disabled>Next</button>
+            </div>
+          </div>
+
+          <div class="profile-step profile-step-avatar" id="profile-step-avatar" hidden>
+            <h2>Add a photo</h2>
+
+            <button class="photo-upload" id="photo-upload" type="button" aria-label="Use example profile photo">
+              <span class="photo-preview" id="photo-preview">
+                <img class="photo-upload-icon" src="assets/upload-icon.svg" alt="">
+                <img class="photo-preview-image" id="photo-preview-image" src="assets/avatar-realistic.png" alt="Profile preview">
+              </span>
+              <span class="photo-upload-copy" id="photo-upload-copy">Upload or drag image</span>
+            </button>
+
+            <div class="avatar-style-block">
+              <div class="avatar-style-label">Change avatar style</div>
+              <div class="avatar-options" id="avatar-options">
+                <button class="avatar-option" type="button" data-avatar="realistic" aria-label="Realistic avatar">
+                  <span class="avatar-placeholder" aria-hidden="true"></span>
+                  <img class="avatar-option-image" src="assets/avatar-realistic-change.png" alt="">
+                </button>
+                <button class="avatar-option" type="button" data-avatar="simple" aria-label="Simple line avatar">
+                  <span class="avatar-placeholder" aria-hidden="true"></span>
+                  <img class="avatar-option-image" src="assets/avatar-simple-change.png" alt="">
+                </button>
+                <button class="avatar-option" type="button" data-avatar="toyface" aria-label="Toy face avatar">
+                  <span class="avatar-placeholder" aria-hidden="true"></span>
+                  <img class="avatar-option-image" src="assets/avatar-toyface-change.png" alt="">
+                </button>
+              </div>
+            </div>
+
+            <div class="sheet-actions">
+              <button class="sheet-button secondary" id="profile-back" type="button">Back</button>
+              <button class="sheet-button primary" id="profile-apply" type="button" disabled>Apply</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="add-overlay" id="add-overlay" aria-hidden="true">
+        <button class="add-glass" id="add-glass" type="button" aria-label="Close add someone sheet"></button>
+
+        <section class="add-sheet" id="add-sheet" aria-label="Add someone to Landline">
+          <button class="add-close" id="add-close" type="button" aria-label="Close">
+            <img src="assets/sheet-close.svg" alt="">
+          </button>
+
+          <section class="add-section add-person-section" aria-labelledby="add-person-heading">
+            <h2 id="add-person-heading">Add someone</h2>
+            <label class="add-field-label" for="landline-id-input">Enter a Landline ID</label>
+            <input class="add-id-input" id="landline-id-input" type="text"
+                   placeholder="horse-window-apple-tv-consume-wall"
+                   autocomplete="off" autocapitalize="none" spellcheck="false"
+                   aria-label="Enter a Landline ID">
+          </section>
+
+          <section class="add-section invite-section" aria-labelledby="invite-person-heading">
+            <h2 id="invite-person-heading">Invite someone</h2>
+            <div class="invite-field-label">Your Landline ID</div>
+            <div class="landline-id-value" id="your-landline-id">peak-bed-tiger-cloud-curtain-river</div>
+            <button class="sheet-button primary add-copy-button" id="copy-landline-id" type="button">Copy Landline ID</button>
+          </section>
+        </section>
+      </div>
+    </section>
+  </main>
+
+<script>
+(() => {
+  // Interactive volume slider.
+  const slider = document.getElementById('volume-slider');
+  const valueLabel = document.getElementById('volume-value');
+  let volume = Number(slider.getAttribute('aria-valuenow')) || 25;
+  let dragging = false;
+
+  const setVolume = (nextValue) => {
+    volume = Math.max(0, Math.min(100, Math.round(nextValue)));
+    slider.style.setProperty('--volume', volume);
+    slider.setAttribute('aria-valuenow', String(volume));
+    valueLabel.value = String(volume);
+    valueLabel.textContent = String(volume);
+  };
+
+  const setFromPointer = (event) => {
+    const rect = slider.getBoundingClientRect();
+    const ratio = (event.clientX - rect.left) / rect.width;
+    setVolume(ratio * 100);
+  };
+
+  slider.addEventListener('pointerdown', (event) => {
+    dragging = true;
+    slider.setPointerCapture(event.pointerId);
+    setFromPointer(event);
+  });
+  slider.addEventListener('pointermove', (event) => {
+    if (dragging) setFromPointer(event);
+  });
+  slider.addEventListener('pointerup', (event) => {
+    dragging = false;
+    if (slider.hasPointerCapture(event.pointerId)) slider.releasePointerCapture(event.pointerId);
+  });
+  slider.addEventListener('pointercancel', () => dragging = false);
+  slider.addEventListener('keydown', (event) => {
+    const step = event.shiftKey ? 5 : 1;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+      event.preventDefault(); setVolume(volume + step);
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+      event.preventDefault(); setVolume(volume - step);
+    } else if (event.key === 'Home') {
+      event.preventDefault(); setVolume(0);
+    } else if (event.key === 'End') {
+      event.preventDefault(); setVolume(100);
+    }
+  });
+
+  // Horizontal, fixed-height VU animation while PTT is held.
+  const ptt = document.getElementById('ptt');
+  const vuBars = [...document.querySelectorAll('#vu-bars span')];
+  let vuTimer = null;
+  let vuIndex = 0;
+  const vuPattern = [5,7,6,9,8,10,7,11,8,12,9,13,8,10,15,9,7,11];
+  const vuColors = ['#17b239','#ff9601','#ff6157'];
+
+  const paintVu = (level) => {
+    vuBars.forEach((bar, i) => {
+      if (i >= level) {
+        bar.style.background = '#777f78';
+      } else if (i < 10) {
+        bar.style.background = vuColors[0];
+      } else if (i < 13) {
+        bar.style.background = vuColors[1];
+      } else {
+        bar.style.background = vuColors[2];
+      }
+    });
+  };
+  const stopVu = () => {
+    if (vuTimer) window.clearInterval(vuTimer);
+    vuTimer = null;
+    paintVu(0);
+  };
+  const startVu = () => {
+    stopVu();
+    vuIndex = 0;
+    paintVu(vuPattern[vuIndex]);
+    vuTimer = window.setInterval(() => {
+      vuIndex = (vuIndex + 1) % vuPattern.length;
+      paintVu(vuPattern[vuIndex]);
+    }, 115);
+  };
+  ptt.addEventListener('pointerdown', startVu);
+  window.addEventListener('pointerup', stopVu);
+  window.addEventListener('pointercancel', stopVu);
+  ptt.addEventListener('lostpointercapture', () => {
+    if (!ptt.matches(':active')) stopVu();
+  });
+  stopVu();
+
+  // Profile sheet flow.
+  const profileButton = document.getElementById('profile-button');
+  const profileOverlay = document.getElementById('profile-overlay');
+  const profileGlass = document.getElementById('profile-glass');
+  const nameStep = document.getElementById('profile-step-name');
+  const avatarStep = document.getElementById('profile-step-avatar');
+  const nicknameField = document.getElementById('nickname-field');
+  const nicknameValue = document.getElementById('nickname-value');
+  const profileCancel = document.getElementById('profile-cancel');
+  const profileNext = document.getElementById('profile-next');
+  const profileBack = document.getElementById('profile-back');
+  const profileApply = document.getElementById('profile-apply');
+  const photoUpload = document.getElementById('photo-upload');
+  const photoPreviewImage = document.getElementById('photo-preview-image');
+  const photoUploadCopy = document.getElementById('photo-upload-copy');
+  const avatarOptions = [...document.querySelectorAll('.avatar-option')];
+  const selfAvatar = document.getElementById('self-avatar');
+
+  const avatarSources = {
+    realistic: 'assets/avatar-realistic.png',
+    simple: 'assets/avatar-simple.png',
+    toyface: 'assets/avatar-toyface.png'
+  };
+  const avatarOptionSources = {
+    realistic: {
+      default: 'assets/avatar-realistic-change.png',
+      selected: 'assets/avatar-realistic-selected.png'
+    },
+    simple: {
+      default: 'assets/avatar-simple-change.png',
+      selected: 'assets/avatar-simple-selected.png'
+    },
+    toyface: {
+      default: 'assets/avatar-toyface-change.png',
+      selected: 'assets/avatar-toyface-selected.png'
+    }
+  };
+
+  let profileCreated = false;
+  let nicknameEntered = false;
+  let photoReady = false;
+  let selectedAvatar = 'toyface';
+  let draftAvatar = selectedAvatar;
+  let photoTimer = null;
+
+  const setNameState = (hasName) => {
+    nicknameEntered = hasName;
+    nicknameField.classList.toggle('has-value', hasName);
+    profileNext.disabled = !hasName;
+  };
+
+  const updateAvatarSelection = (avatar) => {
+    draftAvatar = avatar;
+    avatarOptions.forEach((option) => {
+      const selected = option.dataset.avatar === avatar;
+      option.classList.toggle('is-selected', selected);
+      option.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      const optionImage = option.querySelector('.avatar-option-image');
+      if (optionImage) {
+        optionImage.src = selected
+          ? avatarOptionSources[option.dataset.avatar].selected
+          : avatarOptionSources[option.dataset.avatar].default;
+      }
+    });
+    photoPreviewImage.src = avatarSources[avatar];
+    profileApply.disabled = !photoReady;
+  };
+
+  const showNameStep = () => {
+    nameStep.hidden = false;
+    avatarStep.hidden = true;
+  };
+
+  const showAvatarStep = () => {
+    nameStep.hidden = true;
+    avatarStep.hidden = false;
+    photoReady = profileCreated;
+    avatarStep.classList.toggle('photo-ready', photoReady);
+    avatarStep.classList.remove('is-processing');
+    photoPreviewImage.src = avatarSources[draftAvatar];
+    photoUploadCopy.textContent = profileCreated ? 'Upload or drag to change' : 'Upload or drag image';
+    updateAvatarSelection(draftAvatar);
+  };
+
+  const openProfile = () => {
+    if (photoTimer) {
+      window.clearTimeout(photoTimer);
+      photoTimer = null;
+    }
+    draftAvatar = selectedAvatar;
+    setNameState(profileCreated);
+    nicknameValue.textContent = 'Saori';
+    showNameStep();
+    profileOverlay.classList.add('is-open');
+    profileOverlay.setAttribute('aria-hidden', 'false');
+  };
+
+  const closeProfile = () => {
+    if (photoTimer) {
+      window.clearTimeout(photoTimer);
+      photoTimer = null;
+    }
+    profileOverlay.classList.remove('is-open');
+    profileOverlay.setAttribute('aria-hidden', 'true');
+  };
+
+  profileButton.addEventListener('click', openProfile);
+  profileGlass.addEventListener('click', closeProfile);
+  profileCancel.addEventListener('click', closeProfile);
+
+  nicknameField.addEventListener('click', () => setNameState(true));
+
+  profileNext.addEventListener('click', () => {
+    if (!profileNext.disabled) showAvatarStep();
+  });
+
+  profileBack.addEventListener('click', showNameStep);
+
+  photoUpload.addEventListener('click', () => {
+    if (photoTimer) window.clearTimeout(photoTimer);
+    photoReady = false;
+    avatarStep.classList.add('is-processing');
+    avatarStep.classList.remove('photo-ready');
+    profileApply.disabled = true;
+    photoPreviewImage.src = avatarSources.realistic;
+    photoUploadCopy.textContent = 'Upload or drag image';
+
+    photoTimer = window.setTimeout(() => {
+      photoReady = true;
+      draftAvatar = 'realistic';
+      avatarStep.classList.remove('is-processing');
+      avatarStep.classList.add('photo-ready');
+      photoUploadCopy.textContent = 'Upload or drag to change';
+      updateAvatarSelection('realistic');
+      photoTimer = null;
+    }, 2000);
+  });
+
+  avatarOptions.forEach((option) => {
+    option.addEventListener('click', () => {
+      if (!photoReady) return;
+      updateAvatarSelection(option.dataset.avatar);
+    });
+  });
+
+  profileApply.addEventListener('click', () => {
+    if (profileApply.disabled) return;
+    selectedAvatar = draftAvatar;
+    profileCreated = true;
+    selfAvatar.src = avatarSources[selectedAvatar];
+    closeProfile();
+  });
+
+
+  // Add someone flow. This is intentionally layered onto v21 so the existing
+  // PTT, volume, VU and profile behavior remain unchanged.
+  const addOverlay = document.getElementById('add-overlay');
+  const addGlass = document.getElementById('add-glass');
+  const addClose = document.getElementById('add-close');
+  const addIdInput = document.getElementById('landline-id-input');
+  const addSlots = [...document.querySelectorAll('.add-slot')];
+  const copyLandlineId = document.getElementById('copy-landline-id');
+  const yourLandlineId = document.getElementById('your-landline-id');
+  let selectedAddSlot = null;
+  let copyResetTimer = null;
+  let copyCloseTimer = null;
+
+  const openAddSheet = (slot) => {
+    if (copyResetTimer) window.clearTimeout(copyResetTimer);
+    if (copyCloseTimer) window.clearTimeout(copyCloseTimer);
+    copyResetTimer = null;
+    copyCloseTimer = null;
+    selectedAddSlot = slot;
+    addIdInput.value = '';
+    copyLandlineId.textContent = 'Copy Landline ID';
+    addOverlay.classList.add('is-open');
+    addOverlay.setAttribute('aria-hidden', 'false');
+    window.setTimeout(() => addIdInput.focus(), 110);
+  };
+
+  const closeAddSheet = () => {
+    selectedAddSlot = null;
+    addOverlay.classList.remove('is-open');
+    addOverlay.setAttribute('aria-hidden', 'true');
+    addIdInput.blur();
+    window.setTimeout(() => {
+      copyLandlineId.textContent = 'Copy Landline ID';
+    }, 120);
+  };
+
+  addSlots.forEach((slot) => {
+    slot.addEventListener('click', () => {
+      if (!slot.classList.contains('add-slot')) return;
+      openAddSheet(slot);
+    });
+  });
+
+  addGlass.addEventListener('click', closeAddSheet);
+  addClose.addEventListener('click', closeAddSheet);
+
+  addIdInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    const id = addIdInput.value.trim();
+    if (!id || !selectedAddSlot) return;
+
+    event.preventDefault();
+    const slot = selectedAddSlot;
+    slot.classList.remove('empty', 'add-slot');
+    slot.classList.add('online', 'added-user');
+    slot.removeAttribute('data-slot');
+    slot.setAttribute('aria-label', 'New Landline contact');
+    slot.title = id;
+    slot.innerHTML = '<img src="assets/avatar-toyface.png" alt="New Landline contact">';
+    selectedAddSlot = null;
+    closeAddSheet();
+  });
+
+  const copyText = async (text) => {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const helper = document.createElement('textarea');
+    helper.value = text;
+    helper.setAttribute('readonly', '');
+    helper.style.position = 'fixed';
+    helper.style.opacity = '0';
+    document.body.appendChild(helper);
+    helper.select();
+    document.execCommand('copy');
+    helper.remove();
+  };
+
+  copyLandlineId.addEventListener('click', async () => {
+    if (copyResetTimer) window.clearTimeout(copyResetTimer);
+    if (copyCloseTimer) window.clearTimeout(copyCloseTimer);
+
+    try {
+      await copyText(yourLandlineId.textContent.trim());
+    } catch (_) {
+      // The local-file fallback above handles browsers that disallow the modern
+      // clipboard API. The prototype still shows the intended product state.
+    }
+
+    copyLandlineId.textContent = 'Copied';
+    copyResetTimer = window.setTimeout(() => {
+      copyLandlineId.textContent = 'Copy Landline ID';
+      copyResetTimer = null;
+    }, 900);
+    copyCloseTimer = window.setTimeout(() => {
+      closeAddSheet();
+      copyCloseTimer = null;
+    }, 650);
+  });
+
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && addOverlay.classList.contains('is-open')) {
+      closeAddSheet();
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
