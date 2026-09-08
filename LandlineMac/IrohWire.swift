@@ -1,10 +1,11 @@
 import Foundation
 
-/// Small framing layer shared by Landline's Swift/Iroh transport and the
-/// native Rust interop spike. Payloads are length-prefixed so audio and control
-/// messages can share one bidirectional QUIC stream without ambiguity.
+/// Framing layer for Landline's Swift/Iroh transport.
+///
+/// Protocol v2 keeps the proven v1 hello/PTT/audio/ping frame layout and adds
+/// one membership frame used to form a direct peer mesh for group calls.
 enum IrohWire {
-    static let alpn = Data("landline-iroh-audio/1".utf8)
+    static let alpn = Data("landline-iroh-audio/2".utf8)
 
     enum Kind: UInt8 {
         case hello = 1
@@ -13,6 +14,7 @@ enum IrohWire {
         case pttEnd = 4
         case ping = 5
         case pong = 6
+        case membership = 7
     }
 
     static let headerSize = 5
