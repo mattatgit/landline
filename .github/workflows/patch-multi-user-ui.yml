@@ -1,0 +1,63 @@
+name: Patch multi-user PTT UI hook
+
+on:
+  push:
+    branches:
+      - feature/macos-multi-user
+    paths:
+      - .github/workflows/patch-multi-user-ui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/macos-multi-user
+
+      - name: Add local floor-revocation UI handling
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('LandlineMac/ContentView.swift')
+          text = path.read_text()
+          old = '''        .onChange(of: volume) { _, newValue in
+              iroh.setOutputVolume(newValue)
+          }
+          .onDisappear {
+          '''
+          new = '''        .onChange(of: volume) { _, newValue in
+              iroh.setOutputVolume(newValue)
+          }
+          .onChange(of: iroh.localTransmitGranted) { _, granted in
+              // In a near-simultaneous group PTT collision, IrohClient uses a
+              // deterministic endpoint-ID tie break. If this Mac loses while
+              // the physical PTT is still held, stop local capture immediately
+              // so the winning remote speaker can own the UI/floor.
+              if !granted, pttHeld, micState == .talking {
+                  pttCaptureTask?.cancel()
+                  pttCaptureTask = nil
+                  networkPumpTask?.cancel()
+                  networkPumpTask = nil
+                  microphone.stopCapture()
+                  micState = .muted
+              }
+          }
+          .onDisappear {
+          '''
+          if old not in text:
+              raise SystemExit('Expected ContentView onChange block was not found; refusing to patch')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name "Matt Innes"
+          git config user.email "matt@idealogue.io"
+          git add LandlineMac/ContentView.swift
+          git diff --cached --check
+          git commit -m "Handle group PTT floor revocation in UI"
+          git push origin HEAD:feature/macos-multi-user
