@@ -1,5 +1,6 @@
 name: Build macOS multi-user transport
 
+# Temporary branch-only compile gate; remove before merge.
 on:
   push:
     branches:
