@@ -1,0 +1,39 @@
+name: Build macOS Add User feature
+
+on:
+  push:
+    branches:
+      - feature/macos-add-user
+    paths:
+      - LandlineMac/**
+      - LandlineMac.xcodeproj/**
+      - .github/workflows/build-macos-add-user.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+
+      - name: Build Release app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project LandlineMac.xcodeproj \
+            -scheme LandlineMac \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/LandlineDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Verify arm64 executable
+        run: |
+          APP="$RUNNER_TEMP/LandlineDerivedData/Build/Products/Release/LandlineMac.app"
+          test -d "$APP"
+          file "$APP/Contents/MacOS/LandlineMac"
+          file "$APP/Contents/MacOS/LandlineMac" | grep -q 'arm64'
