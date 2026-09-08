@@ -126,6 +126,20 @@ struct ContentView: View {
         .onChange(of: volume) { _, newValue in
             iroh.setOutputVolume(newValue)
         }
+        .onChange(of: iroh.localTransmitGranted) { _, granted in
+            // In a near-simultaneous group PTT collision, IrohClient uses a
+            // deterministic endpoint-ID tie break. If this Mac loses while
+            // the physical PTT is still held, stop local capture immediately
+            // so the winning remote speaker can own the UI/floor.
+            if !granted, pttHeld, micState == .talking {
+                pttCaptureTask?.cancel()
+                pttCaptureTask = nil
+                networkPumpTask?.cancel()
+                networkPumpTask = nil
+                microphone.stopCapture()
+                micState = .muted
+            }
+        }
         .onDisappear {
             networkPumpTask?.cancel()
             addUserFeedbackTask?.cancel()
