@@ -735,7 +735,222 @@ struct ContentView: View {
         }
     }
 }
-\n\nprivate struct EmptyAddSlot: View {\n    let isHovered: Bool\n    let onHover: (Bool) -> Void\n    let onTap: () -> Void\n\n    var body: some View {\n        Button(action: onTap) {\n            ZStack {\n                Circle()\n                    .fill(Color(red: 11/255, green: 11/255, blue: 11/255))\n                    .frame(width: 56, height: 56)\n\n                ZStack {\n                    Capsule(style: .continuous)\n                        .fill(Color(red: 50/255, green: 50/255, blue: 50/255))\n                        .frame(width: 3, height: 18)\n\n                    Capsule(style: .continuous)\n                        .fill(Color(red: 50/255, green: 50/255, blue: 50/255))\n                        .frame(width: 18, height: 3)\n                }\n                .opacity(isHovered ? 1 : 0)\n            }\n            .frame(width: 56, height: 56)\n            .scaleEffect(isHovered ? 1.0 : 48.0 / 56.0)\n            .animation(.easeOut(duration: 0.10), value: isHovered)\n            .contentShape(Circle())\n        }\n        .buttonStyle(.plain)\n        .frame(width: 56, height: 56)\n        .contentShape(Circle())\n        .onHover(perform: onHover)\n        .accessibilityLabel("Add someone to Landline")\n    }\n}\n\nprivate struct AddUserStatusIcon: View {\n    var body: some View {\n        Canvas { context, _ in\n            let strokeColor = Color(red: 217/255, green: 217/255, blue: 217/255)\n            let strokeStyle = StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)\n\n            var path = Path()\n            path.addEllipse(in: CGRect(x: 11.5, y: 11.5, width: 8, height: 8))\n            path.move(to: CGPoint(x: 15.5, y: 13.5))\n            path.addLine(to: CGPoint(x: 15.5, y: 17.5))\n            path.move(to: CGPoint(x: 13.5, y: 15.5))\n            path.addLine(to: CGPoint(x: 17.5, y: 15.5))\n\n            path.move(to: CGPoint(x: 4.5, y: 15.4999))\n            path.addCurve(\n                to: CGPoint(x: 5.03804, y: 13.3687),\n                control1: CGPoint(x: 4.50051, y: 14.7560),\n                control2: CGPoint(x: 4.68536, y: 14.0238)\n            )\n            path.addCurve(\n                to: CGPoint(x: 6.52099, y: 11.7463),\n                control1: CGPoint(x: 5.39071, y: 12.7137),\n                control2: CGPoint(x: 5.90022, y: 12.1563)\n            )\n            path.addCurve(\n                to: CGPoint(x: 8.59536, y: 11.0194),\n                control1: CGPoint(x: 7.14177, y: 11.3363),\n                control2: CGPoint(x: 7.85447, y: 11.0866)\n            )\n            path.addCurve(\n                to: CGPoint(x: 10.7667, y: 11.3612),\n                control1: CGPoint(x: 9.33626, y: 10.9522),\n                control2: CGPoint(x: 10.0823, y: 11.0696)\n            )\n            path.addEllipse(in: CGRect(x: 6.25, y: 4.5, width: 5.5, height: 5.5))\n\n            context.stroke(path, with: .color(strokeColor), style: strokeStyle)\n        }\n        .frame(width: 24, height: 24)\n        .allowsHitTesting(false)\n    }\n}\n\nprivate struct AddUserSheet: View {\n    let isPresented: Bool\n    let landlineID: String\n    @Binding var enteredID: String\n    let copied: Bool\n    let onSubmit: () -> Void\n    let onCopy: () -> Void\n    let onClose: () -> Void\n\n    @State private var closeHovered = false\n    @FocusState private var inputFocused: Bool\n\n    private var displayedLandlineID: String {\n        landlineID.isEmpty ? "Starting Iroh…" : landlineID\n    }\n\n    var body: some View {\n        ZStack(alignment: .topLeading) {\n            RoundedRectangle(cornerRadius: 16, style: .continuous)\n                .fill(Color.white.opacity(0.95))\n\n            Button(action: onClose) {\n                ZStack {\n                    RoundedRectangle(cornerRadius: 10, style: .continuous)\n                        .fill(closeHovered ? Color.black.opacity(0.035) : .clear)\n\n                    Image(systemName: "xmark")\n                        .font(.system(size: 14, weight: .semibold))\n                        .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))\n                }\n                .frame(width: 32, height: 32)\n                .contentShape(Rectangle())\n            }\n            .buttonStyle(.plain)\n            .scaleEffect(closeHovered ? 1.05 : 1.0)\n            .animation(.easeOut(duration: 0.10), value: closeHovered)\n            .offset(x: 280, y: 8)\n            .onHover { closeHovered = $0 }\n\n            RoundedRectangle(cornerRadius: 12, style: .continuous)\n                .fill(Color(red: 243/255, green: 243/255, blue: 243/255))\n                .frame(width: 272, height: 168)\n                .offset(x: 24, y: 40)\n\n            Text("Add someone")\n                .font(.custom("Inter Tight", size: 16).weight(.semibold))\n                .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))\n                .frame(width: 240, height: 20, alignment: .leading)\n                .offset(x: 40, y: 56)\n\n            Text("Enter a Landline ID")\n                .font(.custom("Inter Tight", size: 14).weight(.medium))\n                .foregroundStyle(Color(red: 158/255, green: 163/255, blue: 158/255))\n                .frame(width: 240, height: 18, alignment: .leading)\n                .offset(x: 40, y: 122)\n\n            ZStack(alignment: .leading) {\n                RoundedRectangle(cornerRadius: 12, style: .continuous)\n                    .fill(Color(red: 235/255, green: 235/255, blue: 235/255))\n\n                TextField(\n                    "",\n                    text: $enteredID,\n                    prompt: Text("horse-window-apple-tv-consume-wall")\n                        .foregroundStyle(Color(red: 205/255, green: 209/255, blue: 205/255))\n                )\n                .textFieldStyle(.plain)\n                .font(.custom("Inter Tight", size: 12).weight(.medium))\n                .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))\n                .padding(.horizontal, 8)\n                .focused($inputFocused)\n                .onSubmit(onSubmit)\n            }\n            .frame(width: 256, height: 48)\n            .offset(x: 32, y: 152)\n\n            RoundedRectangle(cornerRadius: 12, style: .continuous)\n                .fill(Color(red: 243/255, green: 243/255, blue: 243/255))\n                .frame(width: 272, height: 224)\n                .offset(x: 24, y: 232)\n\n            Text("Invite someone")\n                .font(.custom("Inter Tight", size: 16).weight(.semibold))\n                .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))\n                .frame(width: 240, height: 20, alignment: .leading)\n                .offset(x: 40, y: 248)\n\n            Text("Your Landline ID")\n                .font(.custom("Inter Tight", size: 14).weight(.medium))\n                .foregroundStyle(Color(red: 158/255, green: 163/255, blue: 158/255))\n                .frame(width: 240, height: 18, alignment: .leading)\n                .offset(x: 40, y: 314)\n\n            Text(displayedLandlineID)\n                .font(.custom("Inter Tight", size: 12).weight(.medium))\n                .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))\n                .lineLimit(1)\n                .truncationMode(.middle)\n                .padding(.horizontal, 16)\n                .frame(width: 256, height: 48, alignment: .leading)\n                .background(\n                    RoundedRectangle(cornerRadius: 12, style: .continuous)\n                        .fill(Color(red: 235/255, green: 235/255, blue: 235/255))\n                )\n                .offset(x: 32, y: 344)\n\n            Button(action: onCopy) {\n                Text(copied ? "Copied" : "Copy Landline ID")\n                    .font(.custom("Inter Tight", size: 14).weight(.semibold))\n                    .foregroundStyle(Color(red: 235/255, green: 235/255, blue: 235/255))\n                    .frame(width: 256, height: 48)\n                    .background(\n                        RoundedRectangle(cornerRadius: 16, style: .continuous)\n                            .fill(Color(red: 23/255, green: 23/255, blue: 23/255))\n                    )\n            }\n            .buttonStyle(.plain)\n            .offset(x: 32, y: 400)\n        }\n        .frame(width: 320, height: 472)\n        .onChange(of: isPresented) { _, presented in\n            if presented {\n                Task { @MainActor in\n                    try? await Task.sleep(for: .milliseconds(110))\n                    guard isPresented else { return }\n                    inputFocused = true\n                }\n            } else {\n                inputFocused = false\n            }\n        }\n        .onExitCommand(perform: onClose)\n    }\n}\n
+
+
+private struct EmptyAddSlot: View {
+    let isHovered: Bool
+    let onHover: (Bool) -> Void
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            ZStack {
+                Circle()
+                    .fill(Color(red: 11/255, green: 11/255, blue: 11/255))
+                    .frame(width: 56, height: 56)
+
+                ZStack {
+                    Capsule(style: .continuous)
+                        .fill(Color(red: 50/255, green: 50/255, blue: 50/255))
+                        .frame(width: 3, height: 18)
+
+                    Capsule(style: .continuous)
+                        .fill(Color(red: 50/255, green: 50/255, blue: 50/255))
+                        .frame(width: 18, height: 3)
+                }
+                .opacity(isHovered ? 1 : 0)
+            }
+            .frame(width: 56, height: 56)
+            .scaleEffect(isHovered ? 1.0 : 48.0 / 56.0)
+            .animation(.easeOut(duration: 0.10), value: isHovered)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: 56, height: 56)
+        .contentShape(Circle())
+        .onHover(perform: onHover)
+        .accessibilityLabel("Add someone to Landline")
+    }
+}
+
+private struct AddUserStatusIcon: View {
+    var body: some View {
+        Canvas { context, _ in
+            let strokeColor = Color(red: 217/255, green: 217/255, blue: 217/255)
+            let strokeStyle = StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
+
+            var path = Path()
+            path.addEllipse(in: CGRect(x: 11.5, y: 11.5, width: 8, height: 8))
+            path.move(to: CGPoint(x: 15.5, y: 13.5))
+            path.addLine(to: CGPoint(x: 15.5, y: 17.5))
+            path.move(to: CGPoint(x: 13.5, y: 15.5))
+            path.addLine(to: CGPoint(x: 17.5, y: 15.5))
+
+            path.move(to: CGPoint(x: 4.5, y: 15.4999))
+            path.addCurve(
+                to: CGPoint(x: 5.03804, y: 13.3687),
+                control1: CGPoint(x: 4.50051, y: 14.7560),
+                control2: CGPoint(x: 4.68536, y: 14.0238)
+            )
+            path.addCurve(
+                to: CGPoint(x: 6.52099, y: 11.7463),
+                control1: CGPoint(x: 5.39071, y: 12.7137),
+                control2: CGPoint(x: 5.90022, y: 12.1563)
+            )
+            path.addCurve(
+                to: CGPoint(x: 8.59536, y: 11.0194),
+                control1: CGPoint(x: 7.14177, y: 11.3363),
+                control2: CGPoint(x: 7.85447, y: 11.0866)
+            )
+            path.addCurve(
+                to: CGPoint(x: 10.7667, y: 11.3612),
+                control1: CGPoint(x: 9.33626, y: 10.9522),
+                control2: CGPoint(x: 10.0823, y: 11.0696)
+            )
+            path.addEllipse(in: CGRect(x: 6.25, y: 4.5, width: 5.5, height: 5.5))
+
+            context.stroke(path, with: .color(strokeColor), style: strokeStyle)
+        }
+        .frame(width: 24, height: 24)
+        .allowsHitTesting(false)
+    }
+}
+
+private struct AddUserSheet: View {
+    let isPresented: Bool
+    let landlineID: String
+    @Binding var enteredID: String
+    let copied: Bool
+    let onSubmit: () -> Void
+    let onCopy: () -> Void
+    let onClose: () -> Void
+
+    @State private var closeHovered = false
+    @FocusState private var inputFocused: Bool
+
+    private var displayedLandlineID: String {
+        landlineID.isEmpty ? "Starting Iroh…" : landlineID
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.95))
+
+            Button(action: onClose) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(closeHovered ? Color.black.opacity(0.035) : .clear)
+
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))
+                }
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .scaleEffect(closeHovered ? 1.05 : 1.0)
+            .animation(.easeOut(duration: 0.10), value: closeHovered)
+            .offset(x: 280, y: 8)
+            .onHover { closeHovered = $0 }
+
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(red: 243/255, green: 243/255, blue: 243/255))
+                .frame(width: 272, height: 168)
+                .offset(x: 24, y: 40)
+
+            Text("Add someone")
+                .font(.custom("Inter Tight", size: 16).weight(.semibold))
+                .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))
+                .frame(width: 240, height: 20, alignment: .leading)
+                .offset(x: 40, y: 56)
+
+            Text("Enter a Landline ID")
+                .font(.custom("Inter Tight", size: 14).weight(.medium))
+                .foregroundStyle(Color(red: 158/255, green: 163/255, blue: 158/255))
+                .frame(width: 240, height: 18, alignment: .leading)
+                .offset(x: 40, y: 122)
+
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(red: 235/255, green: 235/255, blue: 235/255))
+
+                TextField(
+                    "",
+                    text: $enteredID,
+                    prompt: Text("horse-window-apple-tv-consume-wall")
+                        .foregroundStyle(Color(red: 205/255, green: 209/255, blue: 205/255))
+                )
+                .textFieldStyle(.plain)
+                .font(.custom("Inter Tight", size: 12).weight(.medium))
+                .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))
+                .padding(.horizontal, 8)
+                .focused($inputFocused)
+                .onSubmit(onSubmit)
+            }
+            .frame(width: 256, height: 48)
+            .offset(x: 32, y: 152)
+
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(red: 243/255, green: 243/255, blue: 243/255))
+                .frame(width: 272, height: 224)
+                .offset(x: 24, y: 232)
+
+            Text("Invite someone")
+                .font(.custom("Inter Tight", size: 16).weight(.semibold))
+                .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))
+                .frame(width: 240, height: 20, alignment: .leading)
+                .offset(x: 40, y: 248)
+
+            Text("Your Landline ID")
+                .font(.custom("Inter Tight", size: 14).weight(.medium))
+                .foregroundStyle(Color(red: 158/255, green: 163/255, blue: 158/255))
+                .frame(width: 240, height: 18, alignment: .leading)
+                .offset(x: 40, y: 314)
+
+            Text(displayedLandlineID)
+                .font(.custom("Inter Tight", size: 12).weight(.medium))
+                .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 16)
+                .frame(width: 256, height: 48, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(red: 235/255, green: 235/255, blue: 235/255))
+                )
+                .offset(x: 32, y: 344)
+
+            Button(action: onCopy) {
+                Text(copied ? "Copied" : "Copy Landline ID")
+                    .font(.custom("Inter Tight", size: 14).weight(.semibold))
+                    .foregroundStyle(Color(red: 235/255, green: 235/255, blue: 235/255))
+                    .frame(width: 256, height: 48)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(red: 23/255, green: 23/255, blue: 23/255))
+                    )
+            }
+            .buttonStyle(.plain)
+            .offset(x: 32, y: 400)
+        }
+        .frame(width: 320, height: 472)
+        .onChange(of: isPresented) { _, presented in
+            if presented {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(110))
+                    guard isPresented else { return }
+                    inputFocused = true
+                }
+            } else {
+                inputFocused = false
+            }
+        }
+        .onExitCommand(perform: onClose)
+    }
+}
+
 
 private struct RadioDisplay: View {
     var body: some View {
