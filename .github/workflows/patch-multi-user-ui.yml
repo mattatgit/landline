@@ -24,33 +24,28 @@ jobs:
           from pathlib import Path
           path = Path('LandlineMac/ContentView.swift')
           text = path.read_text()
-          old = '''        .onChange(of: volume) { _, newValue in
-              iroh.setOutputVolume(newValue)
-          }
-          .onDisappear {
-          '''
-          new = '''        .onChange(of: volume) { _, newValue in
-              iroh.setOutputVolume(newValue)
-          }
-          .onChange(of: iroh.localTransmitGranted) { _, granted in
-              // In a near-simultaneous group PTT collision, IrohClient uses a
-              // deterministic endpoint-ID tie break. If this Mac loses while
-              // the physical PTT is still held, stop local capture immediately
-              // so the winning remote speaker can own the UI/floor.
-              if !granted, pttHeld, micState == .talking {
-                  pttCaptureTask?.cancel()
-                  pttCaptureTask = nil
-                  networkPumpTask?.cancel()
-                  networkPumpTask = nil
-                  microphone.stopCapture()
-                  micState = .muted
-              }
-          }
-          .onDisappear {
-          '''
-          if old not in text:
-              raise SystemExit('Expected ContentView onChange block was not found; refusing to patch')
-          path.write_text(text.replace(old, new, 1))
+          marker = "        .onDisappear {\n"
+          if text.count(marker) < 1:
+              raise SystemExit('Expected root onDisappear marker was not found; refusing to patch')
+          hook = (
+              "        .onChange(of: iroh.localTransmitGranted) { _, granted in\n"
+              "            // In a near-simultaneous group PTT collision, IrohClient uses a\n"
+              "            // deterministic endpoint-ID tie break. If this Mac loses while\n"
+              "            // the physical PTT is still held, stop local capture immediately\n"
+              "            // so the winning remote speaker can own the UI/floor.\n"
+              "            if !granted, pttHeld, micState == .talking {\n"
+              "                pttCaptureTask?.cancel()\n"
+              "                pttCaptureTask = nil\n"
+              "                networkPumpTask?.cancel()\n"
+              "                networkPumpTask = nil\n"
+              "                microphone.stopCapture()\n"
+              "                micState = .muted\n"
+              "            }\n"
+              "        }\n"
+          )
+          if "onChange(of: iroh.localTransmitGranted)" in text:
+              raise SystemExit('PTT floor-revocation hook already exists; refusing duplicate patch')
+          path.write_text(text.replace(marker, hook + marker, 1))
           PY
 
       - name: Commit patch
