@@ -10,10 +10,26 @@ Repository: `mattatgit/landline`
 
 Active branches:
 
-- `main` — current macOS baseline and project continuity documentation.
+- `main` — current macOS baseline, canonical web prototypes and project continuity documentation.
 - `linux-nix` — active native Linux/NixOS port, implemented in Rust and kept wire-compatible with the macOS Iroh transport.
 
 Normal development should happen directly from GitHub. ZIP-file exchange is no longer part of the intended workflow.
+
+## Product-development workflow
+
+For new UI flows, Landline uses a prototype-first native implementation sequence:
+
+1. explore/design the interaction in Figma or discussion;
+2. implement and test it in the browser prototype under `prototypes/`;
+3. agree the interaction and visual treatment;
+4. implement the approved flow in the macOS app;
+5. runtime-test the macOS implementation;
+6. bring the Linux/NixOS app to behavioral and visual parity;
+7. run cross-platform validation where networking or shared state is involved.
+
+`prototypes/app/` is the canonical full browser prototype. `prototypes/experiments/` contains small isolated tests that do not become canonical behavior until their accepted result is integrated into the app prototype or otherwise documented.
+
+The browser prototype is a design/interaction validation implementation, not a production web client.
 
 ## Current macOS implementation
 
@@ -21,6 +37,8 @@ The macOS app is in:
 
 - `LandlineMac/`
 - `LandlineMac.xcodeproj/`
+
+`LandlineMac/` contains the Swift source and app resources. `LandlineMac.xcodeproj/` is Xcode's project bundle containing build configuration, targets and project metadata.
 
 Current characteristics:
 
@@ -43,49 +61,13 @@ The earlier WebSocket/relay implementation remains in the source tree as fallbac
 
 The current distributable pipeline produces an Apple Silicon arm64 macOS 15+ build. It verifies the app icon, ad-hoc signing, ZIP packaging and post-extraction signature integrity. The current pinned Iroh dependency does not provide an x86_64 macOS slice, so this build must not be described as Universal.
 
-The remaining macOS validation item is a real-device re-test of the initial microphone permission path after resetting TCC state.
-
 ## Current Linux/NixOS implementation
 
-The native Linux port lives on `linux-nix` in `LandlineNix/`.
+The native Linux port currently lives on `linux-nix` in `LandlineNix/`.
 
-It uses:
+It uses Rust 1.91 / Rust 2024, Iroh 1.0.2, eframe/egui, CPAL, Rodio and Nix flakes. Real macOS ↔ NixOS interoperability has been proven: connection by Iroh endpoint ID and two-way PTT audio were usable for normal conversation.
 
-- Rust 1.91 / Rust 2024
-- Iroh 1.0.2
-- eframe/egui for the desktop shell
-- CPAL for microphone capture
-- Rodio for playback
-- Nix flakes for the development/build environment
-
-The Linux port currently includes:
-
-- the core 320 × 672 layout and custom window controls;
-- shared Landline title/profile/PTT artwork;
-- Inter and Inter Tight embedded into the executable from Nixpkgs at build time;
-- persistent Iroh endpoint identity;
-- one-to-one PTT/audio compatible with the macOS wire protocol;
-- local profile name/avatar persistence;
-- PNG/JPEG avatar selection and drag/drop;
-- Linux avatar JPEG transmission through the existing hello/profile payload;
-- received remote avatar data wired through to the Linux UI;
-- LANDLINE app menu with Iroh Settings… and Quit;
-- Profile button reserved for Profile;
-- a Nix flake and locked dependency set.
-
-Real macOS ↔ NixOS interoperability has been proven: connection by Iroh endpoint ID and two-way PTT audio were usable for normal conversation. The latest Linux parity work still needs full real-desktop confirmation for compositor-dependent opacity/theme behavior, sheet shadow, image-upload stability and remote-avatar display.
-
-The current `linux-nix` GitHub Actions workflow is green at branch head and performs repeated release source builds plus a Nix application package build.
-
-## NixOS run path
-
-```sh
-git clone https://github.com/mattatgit/landline.git
-cd landline
-git switch linux-nix
-nix develop
-cargo run --manifest-path LandlineNix/Cargo.toml
-```
+The current branch arrangement is intentionally being left in place while active work continues. A later repository cleanup may bring `LandlineNix/` onto `main` so macOS, Linux and prototypes live side-by-side in one branch; that is not required for current feature work.
 
 ## Proven networking milestones
 
@@ -98,10 +80,7 @@ An occasional brief crackle can occur around PTT start. Most audio is otherwise 
 
 ## Product versus current transport
 
-The intended Landline product remains an eight-person shared dial:
-
-- local user at 12 o'clock;
-- up to seven remote participants.
+The intended Landline product remains an eight-person shared dial: local user at 12 o'clock plus up to seven remote participants.
 
 The current Iroh integration is deliberately one-to-one. That is an integration-stage transport limitation, not a reduction of the intended product model.
 
@@ -113,10 +92,11 @@ When starting a new Landline chat, send:
 
 `/context`
 
-The context loader in `CONTEXT.md` tells ChatGPT to read `docs/CURRENT.md`, this README, the durable project documents in `docs/`, relevant source, and recent branch/commit state before continuing.
+The context loader in `CONTEXT.md` tells ChatGPT to read `docs/CURRENT.md`, this README, the durable project documents, relevant prototype/native source, and recent branch/commit state before continuing.
 
 See:
 
+- `prototypes/README.md` — prototype workspace and handoff rules
 - `docs/CURRENT.md` — concise active-state record and next step
 - `docs/PRODUCT.md` — product intent and behavior
 - `docs/ARCHITECTURE.md` — implementation architecture and platform split
