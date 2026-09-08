@@ -1,0 +1,63 @@
+name: Package macOS multi-user test build
+
+on:
+  push:
+    branches:
+      - feature/macos-multi-user
+    paths:
+      - .github/workflows/package-macos-multi-user-test.yml
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-15
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+
+      - name: Build Apple Silicon Release app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project LandlineMac.xcodeproj \
+            -scheme LandlineMac \
+            -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath "$RUNNER_TEMP/LandlineDerivedData" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Ad-hoc sign and verify app
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/LandlineDerivedData/Build/Products/Release/LandlineMac.app"
+          test -d "$APP"
+          file "$APP/Contents/MacOS/LandlineMac"
+          file "$APP/Contents/MacOS/LandlineMac" | grep -q 'arm64'
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Package and verify ZIP
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/LandlineDerivedData/Build/Products/Release/LandlineMac.app"
+          ZIP="$RUNNER_TEMP/LandlineMac-MultiUser-v2-Test-2026-09-08.zip"
+          VERIFY="$RUNNER_TEMP/verify-package"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+          mkdir -p "$VERIFY"
+          ditto -x -k "$ZIP" "$VERIFY"
+          codesign --verify --deep --strict --verbose=2 "$VERIFY/LandlineMac.app"
+          file "$VERIFY/LandlineMac.app/Contents/MacOS/LandlineMac" | grep -q 'arm64'
+          shasum -a 256 "$ZIP"
+
+      - name: Upload test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: LandlineMac-MultiUser-v2-Test-2026-09-08
+          path: ${{ runner.temp }}/LandlineMac-MultiUser-v2-Test-2026-09-08.zip
+          if-no-files-found: error
+          retention-days: 14
