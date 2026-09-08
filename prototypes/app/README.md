@@ -2,30 +2,46 @@
 
 This directory contains the current full browser prototype used to validate Landline UI flows before they are implemented in the native clients.
 
-## Status
+## Current version
 
-The directory structure is now canonical, but the latest existing Landline web prototype has not yet been imported into GitHub because its source files are not present in the repository or in the currently available source archive.
+**LANDLINE browser prototype V22** is the canonical prototype currently stored here.
 
-Do not recreate that prototype from memory or from screenshots alone. Import the actual latest prototype source, then use this directory as the durable reference going forward.
+V22 is based on the established V21 browser prototype and adds the approved **Add Users** flow while retaining the existing profile, PTT, status, volume, VU and avatar interactions.
 
-## Expected lightweight structure
+Open `index.html` directly in a modern browser.
 
-While plain web technologies remain sufficient, prefer:
+## V22 Add Users flow
 
-- `index.html`
-- `styles.css`
-- `app.js`
-- `assets/`
+- Hover any empty dial slot to reveal the 56 px add-user state and the `Add someone to Landline` status message.
+- Click an empty slot to open the Add / Invite sheet.
+- The **Add someone** section accepts a Landline ID.
+- Press Return after entering an ID to populate the selected slot with a prototype contact and close the sheet.
+- The **Invite someone** section shows the local user's six-word Landline ID.
+- **Copy Landline ID** copies that ID, briefly shows `Copied`, then closes the sheet.
 
-A different structure is acceptable if the real prototype already uses one; preserving the working prototype is more important than forcing a rename.
+`README.txt` is retained as the source notes supplied with V22, and `ASSET-SOURCES.txt` records prototype asset provenance.
+
+## Structure
+
+The prototype is deliberately lightweight and self-contained:
+
+- `index.html` — markup, prototype state and interaction logic
+- `styles.css` — layout and visual styling
+- `assets/` — local SVG and PNG assets
+- `README.txt` — supplied version notes
+- `ASSET-SOURCES.txt` — asset-source notes
+
+No package manager, build step, framework, CDN or external runtime dependency is required.
 
 ## Feature handoff
 
-Once a new interaction is approved here:
+For new Landline UI work:
 
-1. record any non-obvious behavior in this README or a feature note;
-2. implement it in `LandlineMac/`;
-3. validate it on macOS;
-4. implement corresponding parity work in `LandlineNix/` when that source is integrated/current for the task.
+1. design/idea is explored and validated in the web prototype;
+2. approved behavior is recorded here when it is not obvious from the interaction itself;
+3. implement the approved behavior in `LandlineMac/`;
+4. runtime-test it on macOS;
+5. implement corresponding Linux/NixOS parity work;
+6. validate cross-platform behavior where applicable.
 
-The current Add User flow should be the first feature imported and handed off through this workflow.
+The **Add Users** flow is the first feature using this prototype → macOS → NixOS handoff workflow.
