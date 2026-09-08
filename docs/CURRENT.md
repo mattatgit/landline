@@ -8,149 +8,176 @@ Last consolidated: 2026-09-08.
 
 Repository: `mattatgit/landline`
 
-- `main` — canonical macOS SwiftUI/AppKit + Iroh baseline, canonical web prototype workspace and continuity docs.
-- `linux-nix` — active native Rust/NixOS port.
+- `main` — canonical macOS SwiftUI/AppKit + Iroh v1 baseline, canonical V22 web prototype and continuity docs.
+- `feature/macos-add-user` — macOS Add User implementation based on V22; Apple Silicon test build produced and UI runtime-checked.
+- `feature/macos-multi-user` — active macOS group transport work, stacked on Add User; protocol v2/direct mesh.
+- `linux-nix` — active native Rust/NixOS port; currently protocol v1/one-to-one.
 
 GitHub is the durable source of truth. Do not return to ZIP-based source handoffs as the normal development workflow.
 
-## Prototype-first product workflow — adopted
+## Prototype-first product workflow
 
-Landline now uses a prototype-first implementation sequence for new UI flows:
+Landline uses this sequence for new UI flows:
 
 1. explore/design in Figma or discussion;
 2. implement and test the interaction in the browser prototype;
 3. agree the behavior and visual treatment;
 4. implement the approved flow in macOS;
-5. runtime-test the macOS implementation;
+5. runtime-test macOS;
 6. bring Linux/NixOS to behavioral/visual parity;
-7. run cross-platform validation where networking or shared state is involved.
+7. run cross-platform validation where networking/shared state is involved.
 
 Repository locations:
 
-- `prototypes/app/` — canonical full Landline browser prototype;
+- `prototypes/app/` — canonical full browser prototype;
 - `prototypes/experiments/` — isolated interaction/visual experiments.
 
-The browser prototype is a design-validation implementation, not a production web client.
+### Canonical prototype
 
-### Current prototype import status
+Landline V22 is imported under `prototypes/app/` and is the executable interaction reference for the approved Add User flow. The supplied prototype includes empty-slot hover, Add/Invite sheet, Landline ID entry and copy-ID behavior.
 
-The repository structure and workflow documentation have been added on `chore/web-prototype-workflow`.
+## macOS stable baseline — `main`
 
-The actual latest full Landline browser prototype is **not yet imported** because its source files are not present in the repository or in the currently available source archive. Do not recreate it from incomplete chat memory or screenshots and then treat that reconstruction as canonical.
+The current `main` macOS implementation is the integrated SwiftUI/AppKit + Iroh baseline historically called Landline Iroh Spike V10.
 
-The latest approved **Add User** flow from the Prototyping Features work should be the first feature captured in `prototypes/app/`. Once the real prototype source is available/imported, use it as the executable reference for the macOS Add User implementation.
+Established behavior includes:
 
-## macOS baseline — `main`
-
-The current macOS source is the integrated build historically called **Landline Iroh Spike V10**. It is no longer a standalone spike; the proven Iroh transport is integrated into the Landline UI.
-
-Current macOS behavior:
-
-- fixed 320 × 672 custom SwiftUI/AppKit window with native glass/backdrop treatment;
-- local user fixed at 12 o'clock; seven remote dial positions reserved for the intended eight-person product model;
-- Profile sheet with persisted name/avatar state;
+- fixed 320 × 672 custom window with native glass/backdrop treatment;
+- local user fixed at 12 o'clock and seven remote dial positions;
+- persisted local Profile name/avatar;
 - press-and-hold PTT, status panel, volume and VU meter;
-- persistent Iroh endpoint identity and manual endpoint-ID connection;
-- current transport is deliberately one-to-one; Iroh selects direct versus relay paths;
-- Iroh connection/diagnostics live in the macOS Settings scene, not behind Profile;
-- older `RelayClient` remains only as fallback/reference; current audio uses `IrohClient`.
+- persistent Iroh endpoint identity;
+- protocol v1 one-to-one Iroh transport with direct/relay selection managed by Iroh;
+- Iroh diagnostics in macOS Settings;
+- older `RelayClient` retained only as fallback/reference.
 
-### macOS traffic-light drift repair — source fixed, build passed, runtime longevity test pending
+### Proven v1 networking
 
-The previous implementation re-parented AppKit's window-owned standard controls and used resize/tracking workarounds. That architecture has been replaced.
+- Mac ↔ Mac cross-network audio worked with one laptop on a phone hotspot and the other on a separate network.
+- macOS ↔ NixOS connection by endpoint ID and two-way PTT/audio worked on 2026-09-03.
 
-Current implementation:
+Known audio issue: occasional brief crackling can occur around PTT start; most audio is otherwise clear. Investigate capture/playback/buffering/device-format boundaries before changing the PCM packet format.
 
-- leaves AppKit's window-owned standard buttons in their normal title-bar hierarchy and hides them;
-- creates three independent native standard controls with `NSWindow.standardWindowButton(_:for:)`;
-- targets those caller-owned controls at the Landline window and hosts them at the established Figma centres;
-- removes the `+1/-1` frame nudge, direct `updateTrackingAreas()` calls and related repair paths;
-- locks the outer window to 320 × 672 using identical `minSize`/`maxSize` while retaining `.resizable` only for normal native green-button appearance;
-- disables full-screen behavior;
-- recreates group-hover glyphs with the approved centered SVG-derived paths/colors.
+## Add User — `feature/macos-add-user`
 
-The replacement completed an Apple Silicon Release build and packaging/signature validation on 2026-09-07.
+The approved V22 Add User flow has been implemented natively in Swift on a branch based on updated `main`.
 
-Runtime validation still needs to confirm placement, hover/inactive behavior, close/minimize/green-button behavior, fixed-size behavior, appearance/sleep/display stability, and no long-running drift recurrence.
+Current behavior:
 
-### No-peer PTT regression — fixed and runtime confirmed
+- empty dial positions expose the Add User hover/plus treatment;
+- status bar changes to `Add someone to Landline` while hovering an empty position;
+- clicking an empty position opens the Add/Invite bottom sheet;
+- entering a real Iroh endpoint ID and pressing Return uses the existing Iroh connection path;
+- the connected peer is assigned to the dial position selected by the user;
+- the user's local endpoint ID can be copied from the sheet;
+- existing Profile/PTT behavior is preserved.
 
-Local PTT is allowed whenever the Iroh endpoint is ready and no remote speaker is active. Microphone capture, VU and talking state remain active for the full hold even with zero peers online; network PTT/audio frames are sent only when a peer exists.
+The Add User branch completed Apple Silicon Release compile/package/signature checks. A real Mac runtime test confirmed the new UI appears and behaves correctly. Actual connection initiated through the new Add User sheet still requires a second user/Mac runtime test.
 
-This behavior was runtime-confirmed on a real Apple Silicon Mac on 2026-09-04.
+## Multi-user transport — `feature/macos-multi-user`
 
-### First microphone permission crash — fixed in source, runtime re-test pending
+This branch is stacked on the Add User branch so the previous two-person checkpoint remains intact.
 
-The first-use Swift 6 crash came from actor isolation around AVFoundation's callback permission API. `MicrophoneCapture` now uses AVFoundation's native async permission API:
+### Protocol v2
 
-`await AVCaptureDevice.requestAccess(for: .audio)`
+The branch deliberately moves the macOS transport from:
 
-The fixed source completed a full Apple Silicon Release compile. Runtime confirmation still requires resetting microphone permission so macOS presents the prompt again.
+`landline-iroh-audio/1`
 
-### macOS packaging
+to:
 
-The verified distributable is **Apple Silicon arm64**, macOS 15+.
+`landline-iroh-audio/2`
 
-Pinned `iroh-ffi` 1.1.0 provides the required `aarch64-apple-darwin` macOS build but not an x86_64 macOS slice. Do not describe the current build as Universal.
+Protocol v1 remains the proven one-to-one/cross-platform baseline. Protocol v2 is intentionally incompatible with the current NixOS v1 implementation until NixOS parity work begins.
 
-Ad-hoc signing is suitable for test builds but is not Apple notarization.
+### Group topology
 
-## Proven networking results
+The v2 macOS client now uses a full direct peer mesh rather than a hidden host/relay model:
 
-Two key runtime milestones are proven:
+- each remote endpoint has an independent `PeerSession`/QUIC stream;
+- manually adding a peer no longer disconnects existing users;
+- membership frames share known endpoint IDs;
+- newly discovered peer pairs establish direct sessions using a deterministic initiation rule;
+- the product limit remains local user + seven remotes;
+- one peer/session failure removes that peer without collapsing the rest of the group;
+- local PTT begin/audio/end is broadcast to every connected direct peer;
+- a peer joining while local PTT is already held receives the current `pttBegin` state before subsequent audio;
+- duplicate simultaneous manual connections deterministically keep the same physical QUIC session on both Macs.
 
-1. Mac ↔ Mac cross-network audio worked with one laptop on a phone hotspot and the other on a separate network.
-2. macOS ↔ NixOS interoperability worked on 2026-09-03: connection by Iroh endpoint ID and two-way PTT audio were usable for normal conversation.
+### Group speaker arbitration
 
-Known audio issue: occasional brief crackling can occur around PTT start; most audio is otherwise clear. Investigate capture/playback/buffering/device-format boundaries before changing the wire protocol.
+Stable behavior targets one effective speaker at a time.
+
+- local PTT is rejected when a known remote speaker already owns the floor;
+- if two clients begin before receiving the other's `pttBegin`, the lexicographically lower endpoint ID wins deterministically;
+- the losing local client stops capture/talking UI immediately and broadcasts `pttEnd`;
+- receivers play audio only from the currently selected speaker session and discard competing packets.
+
+This is distributed collision resolution, not a central floor server. Three-or-more-client runtime testing is required before treating it as proven.
+
+### Build status
+
+The v2 transport, Add User UI and floor-revocation UI hook have completed Apple Silicon arm64 Release builds successfully on `macos-15` GitHub runners. The duplicate-session review fix also completed a successful Release build.
+
+No 3+ client runtime test has yet been performed.
 
 ## Linux/NixOS baseline — `linux-nix`
 
 The native Linux client lives under `LandlineNix/` and uses Rust 1.91, Iroh 1.0.2, eframe/egui, CPAL and Rodio.
 
-Current Linux implementation includes:
+Current Linux behavior includes:
 
 - same 320 × 672 layout basis and custom window controls;
 - shared Landline title/profile/PTT artwork;
 - embedded Inter + Inter Tight;
 - persistent Iroh endpoint identity;
-- one-to-one PTT/audio compatible with the macOS wire protocol;
+- protocol v1 one-to-one PTT/audio;
 - local profile name/avatar persistence;
-- Profile button reserved for Profile;
-- LANDLINE app menu containing Iroh Settings… and Quit;
-- Profile sheet aligned to the macOS geometry/hierarchy;
-- PNG/JPEG avatar selection and drag/drop;
-- avatar exchange through the existing Hello/profile payload;
+- Profile sheet and image selection/drop;
+- avatar exchange through v1 Hello/profile payload;
 - Nix flake and locked dependency set.
 
-Real macOS ↔ NixOS two-way audio is proven. The current `linux-nix` GitHub Actions workflow is green at branch head.
+The current `linux-nix` CI baseline is green and real macOS ↔ NixOS v1 audio is proven.
 
-Remaining Linux parity/runtime work is primarily real-desktop validation for opacity/theme behavior, Profile sheet treatment, image-picker/drop stability, avatar persistence/remote display, and any reproducible start-of-PTT crackle.
+Do not attempt a v2 Mac ↔ v1 Nix connection and interpret failure as a regression: the ALPN difference is intentional. NixOS should move to Add User + v2 group semantics only after macOS group behavior is runtime-proven.
 
-## Product vs current transport
+## macOS regressions / outstanding checks
 
-Do not confuse the intended Landline product with the current transport limitation:
+### Traffic-light drift repair
 
-- intended product: local user + up to seven remote participants = eight-person shared dial;
-- current implementation: one connected remote peer at a time.
+Source repair and Release packaging passed 2026-09-07. A longer real-Mac stability test remains pending for hover/inactive behavior, close/minimize/green button behavior, sleep/display/appearance changes and long-running drift recurrence.
 
-The one-to-one transport is an integration stage, not a permanent reduction of the product.
+### No-peer PTT
 
-Longer-term direction discussed includes persistent Landline user/contact identities, invite/QR-based onboarding instead of pasted endpoint IDs, automatic reconnect, and multi-participant fan-out. These are not yet all implemented decisions.
+Fixed and runtime-confirmed 2026-09-04. Endpoint-online users can hold PTT with zero peers; capture/VU/talking state remain active while network sends simply have no destinations.
+
+### First microphone permission path
+
+The Swift 6 permission crash is fixed in source using:
+
+`await AVCaptureDevice.requestAccess(for: .audio)`
+
+A first-permission real-Mac re-test after resetting TCC remains pending.
+
+### Packaging
+
+The current macOS distributable target is Apple Silicon arm64, macOS 15+. Pinned `iroh-ffi` 1.1.0 does not provide the required x86_64 macOS slice. Do not label current builds Universal.
+
+Ad-hoc signing is appropriate for test builds, not release notarization.
 
 ## UI conventions to preserve
 
 - local user stays at 12 o'clock;
 - PTT is press-and-hold;
-- endpoint-online users can hold PTT even when no peers are online;
+- no-peer PTT remains allowed while the endpoint is online;
 - suppress remote speaking indicators while local user is talking;
 - speaking badge uses four centered animated bars in a 24 × 24 green circle;
 - status text uses Medium weight;
 - muted PTT hover may say `Click to talk` but must not swap the muted icon to active;
-- Profile button hover scales the full 24 px button;
-- Profile opens Profile on both platforms; networking settings belong in Settings/app menu;
-- preserve established sheet geometry/hierarchy first; platform-specific blur/glass may differ;
-- macOS traffic lights stay at the established Figma centres and use caller-owned native standard buttons rather than re-parenting AppKit's window-owned instances.
+- Profile button hover scales the whole 24 px control;
+- Profile opens Profile; networking settings belong in Settings/app menu;
+- preserve established sheet geometry/hierarchy first;
+- macOS traffic lights use caller-owned native standard buttons at the established Figma centres.
 
 ## Design reference
 
@@ -158,17 +185,20 @@ Primary Figma prototype reference:
 
 `https://www.figma.com/proto/cbBv0kCV29fX8h2QXbZNDk/SpacesOS-2026?node-id=3911-102362&p=f&viewport=-1105%2C1488%2C0.5&t=zjZbXgJbbsOfVRT9-1&scaling=min-zoom&content-scaling=fixed&starting-point-node-id=3911%3A102362&page-id=3889%3A130618`
 
-When implementation and visual intent disagree, inspect the relevant Figma frame and current canonical web prototype before inventing a new treatment.
+For Add User behavior, also inspect the canonical V22 source in `prototypes/app/`.
 
 ## Current next step
 
-Complete the new prototype-first handoff for **Add User**:
+Runtime-validate protocol v2 with real Macs before bringing NixOS forward:
 
-1. import the actual latest Landline browser prototype source into `prototypes/app/`;
-2. verify that the approved Add User flow is present and capture any non-obvious behavior in the prototype documentation;
-3. inspect the current macOS `main` implementation against that prototype;
-4. implement Add User in Swift from the current macOS baseline;
-5. build and runtime-test the new macOS flow;
-6. once macOS behavior is approved, bring the Linux/NixOS client to parity.
+1. package the current `feature/macos-multi-user` Apple Silicon build;
+2. connect two clients through the Add User sheet and confirm the existing two-person behavior remains good;
+3. add a third Mac/client and verify all three avatars populate through membership/mesh discovery;
+4. verify A → B+C, B → A+C and C → A+B PTT/audio;
+5. verify active-speaker badges/status identify the actual speaker on every client;
+6. verify one peer quitting/removing network does not tear down the other pair;
+7. exercise near-simultaneous PTT and confirm the group converges to one speaker without mixed playback;
+8. repeat across separate networks where practical;
+9. after macOS group behavior is approved, bring NixOS Add User + protocol v2/group transport to parity and run Mac/Nix group tests.
 
-The existing macOS traffic-light longevity test and microphone first-permission runtime re-test remain outstanding regression checks and should not be lost during Add User work.
+Do not lose the traffic-light longevity and microphone first-permission regression checks while group work continues.
