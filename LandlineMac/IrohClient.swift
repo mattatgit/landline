@@ -52,14 +52,22 @@ final class IrohClient: ObservableObject {
         let send: SendStream
         let recv: RecvStream
         var peerID: String?
+        let initiatedLocally: Bool
         var receiveTask: Task<Void, Never>?
         var pathTask: Task<Void, Never>?
 
-        init(connection: Connection, send: SendStream, recv: RecvStream, peerID: String?) {
+        init(
+            connection: Connection,
+            send: SendStream,
+            recv: RecvStream,
+            peerID: String?,
+            initiatedLocally: Bool
+        ) {
             self.connection = connection
             self.send = send
             self.recv = recv
             self.peerID = peerID
+            self.initiatedLocally = initiatedLocally
         }
     }
 
@@ -223,7 +231,8 @@ final class IrohClient: ObservableObject {
                     connection: conn,
                     send: bi.send(),
                     recv: bi.recv(),
-                    expectedPeerID: trimmed
+                    expectedPeerID: trimmed,
+                    initiatedLocally: true
                 )
             } catch {
                 self.connectingPeerIDs.remove(trimmed)
@@ -328,7 +337,8 @@ final class IrohClient: ObservableObject {
                         connection: conn,
                         send: bi.send(),
                         recv: bi.recv(),
-                        expectedPeerID: nil
+                        expectedPeerID: nil,
+                        initiatedLocally: false
                     )
                 } catch {
                     if !Task.isCancelled {
@@ -344,13 +354,15 @@ final class IrohClient: ObservableObject {
         connection: Connection,
         send: SendStream,
         recv: RecvStream,
-        expectedPeerID: String?
+        expectedPeerID: String?,
+        initiatedLocally: Bool
     ) {
         let session = PeerSession(
             connection: connection,
             send: send,
             recv: recv,
-            peerID: expectedPeerID
+            peerID: expectedPeerID,
+            initiatedLocally: initiatedLocally
         )
         sessions[session.id] = session
 
@@ -460,11 +472,20 @@ final class IrohClient: ObservableObject {
         let remoteID = normalizedEndpointID(hello.endpointId)
         guard !remoteID.isEmpty, remoteID != endpointId else { return }
 
-        // If two clients manually initiate at the same time, keep whichever
-        // direct session was installed first and discard the duplicate.
-        if sessions.values.contains(where: { $0.id != sessionID && $0.peerID == remoteID }) {
-            removeSession(sessionID, clearParticipant: false)
-            return
+        // If both clients manually initiate at the same time, both sides
+        // keep the same physical QUIC connection: the lower endpoint ID's
+        // outbound session. This avoids each Mac retaining opposite duplicates.
+        let duplicates = sessions.values.filter { $0.id != sessionID && $0.peerID == remoteID }
+        if !duplicates.isEmpty {
+            let shouldKeepLocallyInitiated = endpointId < remoteID
+            if session.initiatedLocally == shouldKeepLocallyInitiated {
+                for duplicate in duplicates {
+                    removeSession(duplicate.id, clearParticipant: false)
+                }
+            } else {
+                removeSession(sessionID, clearParticipant: false)
+                return
+            }
         }
 
         session.peerID = remoteID
