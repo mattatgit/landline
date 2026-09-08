@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15-arm64
+    runs-on: macos-15
     steps:
       - name: Check out feature branch
         uses: actions/checkout@v4
