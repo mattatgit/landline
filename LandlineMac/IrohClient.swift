@@ -3,11 +3,11 @@ import Combine
 import Foundation
 import IrohLib
 
-/// First integration of the proven Iroh spike into the real Landline UI.
+/// Landline's native Iroh transport.
 ///
-/// This build is intentionally one-to-one and keeps peer discovery manual.
-/// The existing RelayClient remains in the project as a known-good fallback,
-/// but ContentView now sends/receives audio through this Iroh transport.
+/// Protocol v2 supports a direct full mesh of up to seven remote peers. Each
+/// remote endpoint owns an independent QUIC connection/stream, so one peer
+/// disconnecting does not disturb the rest of the group.
 @MainActor
 final class IrohClient: ObservableObject {
     enum ConnectionState: Equatable {
@@ -32,13 +32,10 @@ final class IrohClient: ObservableObject {
     @Published private(set) var remoteSpeakerName: String?
     @Published private(set) var remoteSpeakerID: String?
     @Published private(set) var localTransmitGranted = false
-
-    /// The current integration is one-to-one, but it publishes the same seven
-    /// fixed slots used by the established Landline dial so the UI does not
-    /// need a transport-specific participant model.
     @Published private(set) var remoteSlots: [RemoteParticipant?] = Array(repeating: nil, count: 7)
 
-    // Build-13 diagnostics retained in a temporary Settings panel.
+    // Temporary Settings diagnostics. In a group these follow one selected peer
+    // while global byte counters include traffic to/from all direct sessions.
     @Published private(set) var pathConnection = "—"
     @Published private(set) var pathRouteLabel = "Route"
     @Published private(set) var pathRoute = "—"
@@ -49,27 +46,53 @@ final class IrohClient: ObservableObject {
     @Published private(set) var bytesSent: UInt64 = 0
     @Published private(set) var bytesReceived: UInt64 = 0
 
+    private final class PeerSession {
+        let id = UUID()
+        let connection: Connection
+        let send: SendStream
+        let recv: RecvStream
+        var peerID: String?
+        var receiveTask: Task<Void, Never>?
+        var pathTask: Task<Void, Never>?
+
+        init(connection: Connection, send: SendStream, recv: RecvStream, peerID: String?) {
+            self.connection = connection
+            self.send = send
+            self.recv = recv
+            self.peerID = peerID
+        }
+    }
+
+    private struct PingRecord {
+        let sentAt: UInt64
+        let sessionID: UUID
+    }
+
     private var endpoint: Endpoint?
     private var endpointBinding = false
-    private var connection: Connection?
-    private var sendStream: SendStream?
-    private var recvStream: RecvStream?
-
     private var acceptTask: Task<Void, Never>?
-    private var receiveTask: Task<Void, Never>?
-    private var pathTask: Task<Void, Never>?
+
+    private var sessions: [UUID: PeerSession] = [:]
+    private var connectingPeerIDs: Set<String> = []
+    private var preferredSlotByPeerID: [String: Int] = [:]
+    private var diagnosticSessionID: UUID?
+
     private var lastPathLogSignature = ""
     private var nextPingNonce: UInt64 = 1
-    private var outstandingPings: [UInt64: UInt64] = [:]
+    private var outstandingPings: [UInt64: PingRecord] = [:]
 
     private var displayName = "Caller"
     private var avatarKind = "default"
     private var avatarDataBase64: String?
-    private var connectedPeerID: String?
-    private var preferredRemoteSlotIndex: Int?
     private let playback = RemoteAudioPlayback()
 
-    var isConnected: Bool { connectionState == .connected }
+    var connectedPeerCount: Int {
+        sessions.values.reduce(into: 0) { count, session in
+            if session.peerID != nil { count += 1 }
+        }
+    }
+
+    var isConnected: Bool { connectedPeerCount > 0 }
 
     var stateLabel: String {
         if let lastError, !lastError.isEmpty {
@@ -78,11 +101,15 @@ final class IrohClient: ObservableObject {
         if !endpointReady {
             return "Starting Iroh…"
         }
-        switch connectionState {
-        case .disconnected: return "Ready — waiting for a peer"
-        case .connecting: return "Connecting…"
-        case .connected: return "Connected"
+        if connectedPeerCount > 0 {
+            return connectedPeerCount == 1
+                ? "Connected to 1 peer"
+                : "Connected to \(connectedPeerCount) peers"
         }
+        if connectionState == .connecting {
+            return "Connecting…"
+        }
+        return "Ready — waiting for peers"
     }
 
     func start(displayName: String, avatarImage: NSImage? = nil, usesDefaultAvatar: Bool = true) {
@@ -110,6 +137,7 @@ final class IrohClient: ObservableObject {
                 self.endpointReady = true
                 self.lastError = nil
                 self.beginAcceptLoop(ep)
+                self.updateConnectionState()
             } catch {
                 self.endpointBinding = false
                 self.endpointReady = false
@@ -147,24 +175,33 @@ final class IrohClient: ObservableObject {
         }
     }
 
+    /// Adds one peer without disconnecting any existing peers. The explicit
+    /// connection becomes a seed for mesh membership discovery.
     func connect(to rawEndpointId: String, preferredSlotIndex: Int? = nil) {
         guard let endpoint else {
             lastError = "Iroh endpoint is not ready yet."
             return
         }
 
-        let trimmed = rawEndpointId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        let trimmed = normalizedEndpointID(rawEndpointId)
+        guard !trimmed.isEmpty, trimmed != endpointId else { return }
+        guard session(forPeerID: trimmed) == nil, !connectingPeerIDs.contains(trimmed) else { return }
 
-        let preferredSlot = preferredSlotIndex.flatMap { index in
-            remoteSlots.indices.contains(index) ? index : nil
+        let existingParticipant = remoteSlots.contains(where: { $0?.id == trimmed })
+        guard existingParticipant || remoteSlots.contains(where: { $0 == nil }) else {
+            lastError = "Landline already has seven remote users."
+            return
         }
 
-        disconnect(clearError: false)
-        preferredRemoteSlotIndex = preferredSlot
-        connectionState = .connecting
+        if let preferredSlotIndex,
+           remoteSlots.indices.contains(preferredSlotIndex),
+           remoteSlots[preferredSlotIndex] == nil {
+            preferredSlotByPeerID[trimmed] = preferredSlotIndex
+        }
+
+        connectingPeerIDs.insert(trimmed)
         lastError = nil
-        connectedPeerID = trimmed
+        updateConnectionState()
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -174,31 +211,57 @@ final class IrohClient: ObservableObject {
                 let conn = try await endpoint.connect(addr: addr, alpn: IrohWire.alpn)
                 let bi = try await conn.openBi()
 
-                // QUIC only exposes a newly opened stream to the accepting peer
-                // after the initiator writes some data. The hello also carries
-                // the profile needed to populate the real Landline dial.
+                // A newly opened QUIC stream is not visible to the accepting
+                // endpoint until the initiator writes. Hello performs that first
+                // write and gives the peer enough identity to bind the session.
                 let hello = try self.currentHelloFrame()
                 try await bi.send().writeAll(buf: hello)
                 self.bytesSent += UInt64(hello.count)
 
-                self.install(connection: conn, send: bi.send(), recv: bi.recv())
+                self.connectingPeerIDs.remove(trimmed)
+                self.install(
+                    connection: conn,
+                    send: bi.send(),
+                    recv: bi.recv(),
+                    expectedPeerID: trimmed
+                )
             } catch {
-                self.connectionState = .disconnected
+                self.connectingPeerIDs.remove(trimmed)
+                self.preferredSlotByPeerID.removeValue(forKey: trimmed)
                 self.lastError = error.localizedDescription
-                self.connectedPeerID = nil
+                self.updateConnectionState()
             }
         }
     }
 
+    /// Disconnects the whole local group. Individual network failures use
+    /// removeSession instead and therefore leave other peers untouched.
     func disconnect() {
-        disconnect(clearError: true)
+        let currentSessions = Array(sessions.values)
+        sessions.removeAll()
+        connectingPeerIDs.removeAll()
+        preferredSlotByPeerID.removeAll()
+
+        for session in currentSessions {
+            session.receiveTask?.cancel()
+            session.pathTask?.cancel()
+        }
+
+        diagnosticSessionID = nil
+        localTransmitGranted = false
+        remoteSpeakerID = nil
+        remoteSpeakerName = nil
+        remoteSlots = Array(repeating: nil, count: 7)
+        outstandingPings.removeAll()
+        playback.reset()
+        resetPathDiagnostics()
+        lastError = nil
+        updateConnectionState()
     }
 
-    /// Local PTT is available whenever this Landline endpoint is online,
-    /// even if none of the user's peers are currently connected. A live peer
-    /// connection only determines whether PTT/audio frames have somewhere to go.
-    /// This keeps the interaction model independent from peer presence and matches
-    /// the intended multi-user dial behaviour where offline contacts do not disable PTT.
+    /// Local PTT remains available with zero peers. With peers online, pttBegin
+    /// is broadcast to every direct session. A deterministic endpoint-ID tie
+    /// break resolves near-simultaneous presses to one speaker on all clients.
     func beginTransmit() async -> Bool {
         guard endpointReady else {
             localTransmitGranted = false
@@ -210,83 +273,45 @@ final class IrohClient: ObservableObject {
         }
 
         localTransmitGranted = true
-
-        guard isConnected, sendStream != nil else {
-            return true
-        }
-
-        do {
-            try await sendFrame(.pttBegin)
-            return true
-        } catch {
-            // Losing the only peer during a hold must not collapse local PTT.
-            connectionFailed(error)
-            localTransmitGranted = true
-            return true
-        }
+        await broadcastFrame(.pttBegin)
+        return true
     }
 
     func endTransmit() {
-        let shouldSend = localTransmitGranted && isConnected
+        let shouldSend = localTransmitGranted
         localTransmitGranted = false
         guard shouldSend else { return }
 
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                try await self.sendFrame(.pttEnd)
-            } catch {
-                self.connectionFailed(error)
-            }
+            await self?.broadcastFrame(.pttEnd)
         }
     }
 
     func sendAudioFrame(_ frame: CapturedAudioFrame) async {
-        guard localTransmitGranted, isConnected else { return }
-        do {
-            try await sendFrame(.audio, payload: frame.networkPacket)
-        } catch {
-            connectionFailed(error)
-        }
+        guard localTransmitGranted else { return }
+        await broadcastFrame(.audio, payload: frame.networkPacket)
     }
 
-    /// Application-level RTT over the exact framed stream carrying PTT/audio.
+    /// Application-level RTT is measured against the diagnostics peer rather
+    /// than every member at once.
     func measureLandlineRTT() async {
-        guard isConnected, sendStream != nil else { return }
+        guard let session = diagnosticSession() else { return }
 
         let nonce = nextPingNonce
         nextPingNonce &+= 1
-        outstandingPings[nonce] = DispatchTime.now().uptimeNanoseconds
+        outstandingPings[nonce] = PingRecord(
+            sentAt: DispatchTime.now().uptimeNanoseconds,
+            sessionID: session.id
+        )
         landlineLatency = "Measuring…"
 
         do {
-            try await sendFrame(.ping, payload: IrohWire.uint64Payload(nonce))
+            try await sendFrame(.ping, payload: IrohWire.uint64Payload(nonce), to: session.id)
         } catch {
             outstandingPings.removeValue(forKey: nonce)
             landlineLatency = "Failed"
-            connectionFailed(error)
+            failSession(session.id, error: error)
         }
-    }
-
-    private func disconnect(clearError: Bool) {
-        receiveTask?.cancel()
-        pathTask?.cancel()
-        receiveTask = nil
-        pathTask = nil
-        sendStream = nil
-        recvStream = nil
-        connection = nil
-        connectionState = .disconnected
-        connectedPeerID = nil
-        preferredRemoteSlotIndex = nil
-        localTransmitGranted = false
-        remoteSpeakerID = nil
-        remoteSpeakerName = nil
-        remoteSlots = Array(repeating: nil, count: 7)
-        outstandingPings.removeAll()
-        playback.reset()
-        resetPathDiagnostics()
-        if clearError { lastError = nil }
     }
 
     private func beginAcceptLoop(_ endpoint: Endpoint) {
@@ -299,7 +324,12 @@ final class IrohClient: ObservableObject {
                     let accepting = try await incoming.accept()
                     let conn = try await accepting.connect()
                     let bi = try await conn.acceptBi()
-                    self.install(connection: conn, send: bi.send(), recv: bi.recv())
+                    self.install(
+                        connection: conn,
+                        send: bi.send(),
+                        recv: bi.recv(),
+                        expectedPeerID: nil
+                    )
                 } catch {
                     if !Task.isCancelled {
                         self.lastError = error.localizedDescription
@@ -310,43 +340,61 @@ final class IrohClient: ObservableObject {
         }
     }
 
-    private func install(connection: Connection, send: SendStream, recv: RecvStream) {
-        receiveTask?.cancel()
-        pathTask?.cancel()
+    private func install(
+        connection: Connection,
+        send: SendStream,
+        recv: RecvStream,
+        expectedPeerID: String?
+    ) {
+        let session = PeerSession(
+            connection: connection,
+            send: send,
+            recv: recv,
+            peerID: expectedPeerID
+        )
+        sessions[session.id] = session
 
-        self.connection = connection
-        self.sendStream = send
-        self.recvStream = recv
-        self.connectionState = .connected
-        self.lastError = nil
-        self.localTransmitGranted = false
-        self.remoteSpeakerID = nil
-        self.remoteSpeakerName = nil
-
-        receiveTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.receiveLoop(recv)
+        if let expectedPeerID {
+            connectingPeerIDs.remove(expectedPeerID)
         }
 
-        pathTask = Task { @MainActor [weak self] in
+        if diagnosticSessionID == nil {
+            diagnosticSessionID = session.id
+        }
+
+        lastError = nil
+        updateConnectionState()
+
+        session.receiveTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            while !Task.isCancelled, self.connection != nil {
-                let paths = connection.paths()
-                self.updatePathDiagnostics(paths)
+            await self.receiveLoop(sessionID: session.id, recv: recv)
+        }
+
+        session.pathTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled, self.sessions[session.id] != nil {
+                if self.diagnosticSessionID == session.id {
+                    self.updatePathDiagnostics(connection.paths())
+                }
                 try? await Task.sleep(for: .milliseconds(750))
             }
         }
 
-        // The accepting side has not written anything yet, and the initiating
-        // side may have changed profile since its stream-opening hello. Sending
-        // the current profile here is harmlessly idempotent and ensures both
-        // Landline dials populate immediately.
         Task { @MainActor [weak self] in
-            await self?.sendCurrentHello()
+            guard let self else { return }
+            do {
+                try await self.sendFrame(
+                    .hello,
+                    payload: try self.currentHelloPayload(),
+                    to: session.id
+                )
+            } catch {
+                self.failSession(session.id, error: error)
+            }
         }
     }
 
-    private func receiveLoop(_ recv: RecvStream) async {
+    private func receiveLoop(sessionID: UUID, recv: RecvStream) async {
         do {
             while !Task.isCancelled {
                 let header = try await recv.readExact(size: UInt32(IrohWire.headerSize))
@@ -364,72 +412,69 @@ final class IrohClient: ObservableObject {
 
                 switch kind {
                 case .hello:
-                    handleHello(payload)
+                    handleHello(payload, sessionID: sessionID)
 
                 case .pttBegin:
-                    let speakerID = connectedPeerID ?? remoteSlots.compactMap { $0 }.first?.id ?? "peer"
-                    remoteSpeakerID = speakerID
-                    remoteSpeakerName = remoteSlots.compactMap { $0 }.first(where: { $0.id == speakerID })?.name
-                        ?? remoteSlots.compactMap { $0 }.first?.name
-                        ?? "Caller"
+                    if let peerID = sessions[sessionID]?.peerID {
+                        handleRemotePTTBegin(from: peerID)
+                    }
 
                 case .audio:
-                    playback.enqueueNetworkPacket(payload)
+                    if let peerID = sessions[sessionID]?.peerID,
+                       peerID == remoteSpeakerID,
+                       !localTransmitGranted {
+                        playback.enqueueNetworkPacket(payload)
+                    }
 
                 case .pttEnd:
-                    remoteSpeakerID = nil
-                    remoteSpeakerName = nil
+                    if let peerID = sessions[sessionID]?.peerID,
+                       remoteSpeakerID == peerID {
+                        remoteSpeakerID = nil
+                        remoteSpeakerName = nil
+                        playback.reset()
+                    }
 
                 case .ping:
-                    try await sendFrame(.pong, payload: payload)
+                    try await sendFrame(.pong, payload: payload, to: sessionID)
 
                 case .pong:
-                    if let nonce = IrohWire.decodeUInt64Payload(payload),
-                       let sentAt = outstandingPings.removeValue(forKey: nonce) {
-                        let now = DispatchTime.now().uptimeNanoseconds
-                        let elapsed = now >= sentAt ? now - sentAt : 0
-                        landlineLatency = String(format: "%.1f ms", Double(elapsed) / 1_000_000)
-                    }
+                    handlePong(payload, sessionID: sessionID)
+
+                case .membership:
+                    handleMembership(payload)
                 }
             }
         } catch {
             if !Task.isCancelled {
-                connectionFailed(error)
+                failSession(sessionID, error: error)
             }
         }
     }
 
-    private func sendCurrentHello() async {
-        guard isConnected else { return }
-        do {
-            try await sendFrame(.hello, payload: try currentHelloPayload())
-        } catch {
-            connectionFailed(error)
-        }
-    }
-
-    private func currentHelloFrame() throws -> Data {
-        IrohWire.frame(.hello, payload: try currentHelloPayload())
-    }
-
-    private func currentHelloPayload() throws -> Data {
-        let hello = HelloMessage(
-            endpointId: endpointId,
-            name: displayName,
-            avatarKind: avatarKind,
-            avatarData: avatarDataBase64
-        )
-        return try JSONEncoder().encode(hello)
-    }
-
-    private func handleHello(_ payload: Data) {
+    private func handleHello(_ payload: Data, sessionID: UUID) {
         guard !payload.isEmpty,
-              let hello = try? JSONDecoder().decode(HelloMessage.self, from: payload)
+              let hello = try? JSONDecoder().decode(HelloMessage.self, from: payload),
+              let session = sessions[sessionID]
         else { return }
 
-        let remoteID = String(hello.endpointId.prefix(80))
+        let remoteID = normalizedEndpointID(hello.endpointId)
         guard !remoteID.isEmpty, remoteID != endpointId else { return }
-        connectedPeerID = remoteID
+
+        // If two clients manually initiate at the same time, keep whichever
+        // direct session was installed first and discard the duplicate.
+        if sessions.values.contains(where: { $0.id != sessionID && $0.peerID == remoteID }) {
+            removeSession(sessionID, clearParticipant: false)
+            return
+        }
+
+        session.peerID = remoteID
+        connectingPeerIDs.remove(remoteID)
+
+        let isExistingParticipant = remoteSlots.contains(where: { $0?.id == remoteID })
+        if !isExistingParticipant && !remoteSlots.contains(where: { $0 == nil }) {
+            removeSession(sessionID, clearParticipant: false)
+            return
+        }
 
         let participant: RemoteParticipant
         if hello.avatarKind == "jpeg",
@@ -451,21 +496,224 @@ final class IrohClient: ObservableObject {
         }
 
         insertOrUpdateRemote(participant)
+
         if remoteSpeakerID == remoteID {
             remoteSpeakerName = participant.name
         }
+
+        updateConnectionState()
+
+        // A peer that joins while this Mac is already holding PTT needs the
+        // current floor state before its first audio packet.
+        if localTransmitGranted {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.sendFrame(.pttBegin, to: sessionID)
+                } catch {
+                    self.failSession(sessionID, error: error)
+                }
+            }
+        }
+
+        Task { @MainActor [weak self] in
+            await self?.broadcastMembership()
+        }
     }
 
-    private func sendFrame(_ kind: IrohWire.Kind, payload: Data = Data()) async throws {
-        guard let sendStream else { throw IrohClientError.notConnected }
+    private func handleMembership(_ payload: Data) {
+        guard let membership = try? JSONDecoder().decode(MembershipMessage.self, from: payload),
+              endpointReady,
+              !endpointId.isEmpty
+        else { return }
+
+        let candidates = Array(Set(membership.endpointIds.map { normalizedEndpointID($0) }))
+            .filter { !$0.isEmpty && $0 != endpointId }
+            .sorted()
+            .prefix(7)
+
+        for peerID in candidates {
+            guard session(forPeerID: peerID) == nil,
+                  !connectingPeerIDs.contains(peerID),
+                  remoteSlots.contains(where: { $0 == nil })
+            else { continue }
+
+            // Exactly one side of a newly discovered pair initiates, avoiding a
+            // connection storm as membership propagates through the mesh.
+            if endpointId < peerID {
+                connect(to: peerID)
+            }
+        }
+    }
+
+    private func broadcastMembership() async {
+        let ids = Set(
+            [endpointId]
+                + remoteSlots.compactMap { $0?.id }
+                + sessions.values.compactMap { $0.peerID }
+        )
+        let normalized = ids
+            .map { normalizedEndpointID($0) }
+            .filter { !$0.isEmpty }
+            .sorted()
+            .prefix(8)
+
+        let message = MembershipMessage(endpointIds: Array(normalized))
+        guard let payload = try? JSONEncoder().encode(message) else { return }
+        await broadcastFrame(.membership, payload: payload)
+    }
+
+    private func handleRemotePTTBegin(from peerID: String) {
+        // If local and remote begin nearly simultaneously, the lower endpoint
+        // ID wins everywhere. The losing local sender broadcasts pttEnd so third
+        // peers converge on the same floor owner.
+        if localTransmitGranted {
+            guard peerID < endpointId else { return }
+
+            localTransmitGranted = false
+            remoteSpeakerID = peerID
+            remoteSpeakerName = participantName(for: peerID)
+            playback.reset()
+
+            Task { @MainActor [weak self] in
+                await self?.broadcastFrame(.pttEnd)
+            }
+            return
+        }
+
+        if let currentSpeakerID = remoteSpeakerID {
+            guard currentSpeakerID != peerID else { return }
+            guard peerID < currentSpeakerID else { return }
+            playback.reset()
+        }
+
+        remoteSpeakerID = peerID
+        remoteSpeakerName = participantName(for: peerID)
+    }
+
+    private func handlePong(_ payload: Data, sessionID: UUID) {
+        guard let nonce = IrohWire.decodeUInt64Payload(payload),
+              let record = outstandingPings.removeValue(forKey: nonce),
+              record.sessionID == sessionID
+        else { return }
+
+        let now = DispatchTime.now().uptimeNanoseconds
+        let elapsed = now >= record.sentAt ? now - record.sentAt : 0
+        landlineLatency = String(format: "%.1f ms", Double(elapsed) / 1_000_000)
+    }
+
+    private func sendCurrentHello() async {
+        guard isConnected else { return }
+        guard let payload = try? currentHelloPayload() else { return }
+        await broadcastFrame(.hello, payload: payload)
+    }
+
+    private func currentHelloFrame() throws -> Data {
+        IrohWire.frame(.hello, payload: try currentHelloPayload())
+    }
+
+    private func currentHelloPayload() throws -> Data {
+        let hello = HelloMessage(
+            endpointId: endpointId,
+            name: displayName,
+            avatarKind: avatarKind,
+            avatarData: avatarDataBase64
+        )
+        return try JSONEncoder().encode(hello)
+    }
+
+    private func broadcastFrame(_ kind: IrohWire.Kind, payload: Data = Data()) async {
+        let sessionIDs = sessions.values
+            .filter { $0.peerID != nil }
+            .map(\.id)
+
+        for sessionID in sessionIDs {
+            do {
+                try await sendFrame(kind, payload: payload, to: sessionID)
+            } catch {
+                failSession(sessionID, error: error)
+            }
+        }
+    }
+
+    private func sendFrame(
+        _ kind: IrohWire.Kind,
+        payload: Data = Data(),
+        to sessionID: UUID
+    ) async throws {
+        guard let session = sessions[sessionID] else {
+            throw IrohClientError.notConnected
+        }
         let data = IrohWire.frame(kind, payload: payload)
-        try await sendStream.writeAll(buf: data)
+        try await session.send.writeAll(buf: data)
         bytesSent += UInt64(data.count)
     }
 
-    private func connectionFailed(_ error: Error) {
+    private func failSession(_ sessionID: UUID, error: Error) {
         lastError = error.localizedDescription
-        disconnect(clearError: false)
+        removeSession(sessionID, clearParticipant: true)
+    }
+
+    private func removeSession(_ sessionID: UUID, clearParticipant: Bool) {
+        guard let removed = sessions.removeValue(forKey: sessionID) else { return }
+
+        removed.receiveTask?.cancel()
+        removed.pathTask?.cancel()
+
+        if let peerID = removed.peerID {
+            connectingPeerIDs.remove(peerID)
+            preferredSlotByPeerID.removeValue(forKey: peerID)
+
+            if clearParticipant && self.session(forPeerID: peerID) == nil {
+                removeRemoteParticipant(peerID)
+            }
+
+            if remoteSpeakerID == peerID {
+                remoteSpeakerID = nil
+                remoteSpeakerName = nil
+                playback.reset()
+            }
+        }
+
+        outstandingPings = outstandingPings.filter { $0.value.sessionID != sessionID }
+
+        if diagnosticSessionID == sessionID {
+            diagnosticSessionID = sessions.values.first(where: { $0.peerID != nil })?.id
+            resetPathDiagnostics()
+        }
+
+        updateConnectionState()
+
+        Task { @MainActor [weak self] in
+            await self?.broadcastMembership()
+        }
+    }
+
+    private func session(forPeerID peerID: String) -> PeerSession? {
+        sessions.values.first(where: { $0.peerID == peerID })
+    }
+
+    private func diagnosticSession() -> PeerSession? {
+        if let diagnosticSessionID,
+           let current = sessions[diagnosticSessionID],
+           current.peerID != nil {
+            return current
+        }
+        if let current = sessions.values.first(where: { $0.peerID != nil }) {
+            diagnosticSessionID = current.id
+            return current
+        }
+        return nil
+    }
+
+    private func updateConnectionState() {
+        if connectedPeerCount > 0 {
+            connectionState = .connected
+        } else if !connectingPeerIDs.isEmpty || !sessions.isEmpty {
+            connectionState = .connecting
+        } else {
+            connectionState = .disconnected
+        }
     }
 
     private func setLocalProfile(displayName: String, avatarImage: NSImage?, usesDefaultAvatar: Bool) {
@@ -514,22 +762,36 @@ final class IrohClient: ObservableObject {
     private func insertOrUpdateRemote(_ participant: RemoteParticipant) {
         if let index = remoteSlots.firstIndex(where: { $0?.id == participant.id }) {
             remoteSlots[index] = participant
-            preferredRemoteSlotIndex = nil
+            preferredSlotByPeerID.removeValue(forKey: participant.id)
             return
         }
 
-        if let preferredRemoteSlotIndex,
-           remoteSlots.indices.contains(preferredRemoteSlotIndex),
-           remoteSlots[preferredRemoteSlotIndex] == nil {
-            remoteSlots[preferredRemoteSlotIndex] = participant
-            self.preferredRemoteSlotIndex = nil
+        if let preferredSlot = preferredSlotByPeerID[participant.id],
+           remoteSlots.indices.contains(preferredSlot),
+           remoteSlots[preferredSlot] == nil {
+            remoteSlots[preferredSlot] = participant
+            preferredSlotByPeerID.removeValue(forKey: participant.id)
             return
         }
 
         if let emptyIndex = remoteSlots.firstIndex(where: { $0 == nil }) {
             remoteSlots[emptyIndex] = participant
-            preferredRemoteSlotIndex = nil
+            preferredSlotByPeerID.removeValue(forKey: participant.id)
         }
+    }
+
+    private func removeRemoteParticipant(_ peerID: String) {
+        guard let index = remoteSlots.firstIndex(where: { $0?.id == peerID }) else { return }
+        remoteSlots[index] = nil
+    }
+
+    private func participantName(for peerID: String) -> String {
+        remoteSlots.compactMap { $0 }.first(where: { $0.id == peerID })?.name ?? "Caller"
+    }
+
+    private func normalizedEndpointID(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(trimmed.prefix(80))
     }
 
     private func normalizedName(_ value: String) -> String {
@@ -561,7 +823,9 @@ final class IrohClient: ObservableObject {
         }
 
         if let selected = paths.first(where: { $0.isSelected }) {
-            pathSelectionNote = ""
+            pathSelectionNote = connectedPeerCount > 1
+                ? "Showing one of \(connectedPeerCount) direct peer sessions"
+                : ""
             if selected.isRelay {
                 pathConnection = "Relay"
                 pathRouteLabel = "Relay"
@@ -581,7 +845,9 @@ final class IrohClient: ObservableObject {
 
         if let candidate = paths.first {
             pathConnection = "Negotiating"
-            pathRouteLabel = candidate.isRelay ? "Relay candidate" : (candidate.isIp ? "Direct candidate" : "Candidate")
+            pathRouteLabel = candidate.isRelay
+                ? "Relay candidate"
+                : (candidate.isIp ? "Direct candidate" : "Candidate")
             pathRoute = Self.displayAddress(candidate.remoteAddr, relay: candidate.isRelay)
             pathLatency = "\(candidate.rttMs) ms"
             pathSelectionNote = "No selected path reported yet"
@@ -615,6 +881,10 @@ final class IrohClient: ObservableObject {
         let name: String
         let avatarKind: String
         let avatarData: String?
+    }
+
+    private struct MembershipMessage: Codable {
+        let endpointIds: [String]
     }
 
     private enum IrohClientError: LocalizedError {
