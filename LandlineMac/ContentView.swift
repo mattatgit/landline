@@ -9,7 +9,13 @@ struct ContentView: View {
     @State private var hoveredPTT = false
     @State private var hoveredProfile = false
     @State private var hoveredRemoteParticipantID: String?
+    @State private var hoveredEmptySlotIndex: Int?
     @State private var showProfile = false
+    @State private var showAddUser = false
+    @State private var selectedAddSlotIndex: Int?
+    @State private var addUserID = ""
+    @State private var copiedLandlineID = false
+    @State private var addUserFeedbackTask: Task<Void, Never>?
     @StateObject private var microphone = MicrophoneCapture()
     @State private var pttHeld = false
     @State private var pttCaptureTask: Task<Void, Never>?
@@ -29,6 +35,13 @@ struct ContentView: View {
 
     private var isMuted: Bool { micState == .muted }
     private var isTalking: Bool { micState == .talking }
+    private var isModalPresented: Bool { showProfile || showAddUser }
+
+    private var modalVeilOpacity: Double {
+        if showProfile { return 0.10 }
+        if showAddUser { return 0.06 }
+        return 0
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -37,21 +50,23 @@ struct ContentView: View {
             // the sheet remains crisp above it. This mirrors the Settings view
             // frames where Window/Glass uses backdrop-blur 25 px.
             mainInterface
-                .blur(radius: showProfile ? 25 : 0)
+                .blur(radius: isModalPresented ? 25 : 0)
                 .animation(.easeOut(duration: 0.28), value: showProfile)
+                .animation(.easeOut(duration: 0.10), value: showAddUser)
 
             // Window/Glass also carries a subtle 10% #F8F8F8 veil. Besides
             // matching the Figma treatment, this view provides the modal hit
             // surface for the exposed area above the bottom sheet.
             Color(red: 248/255, green: 248/255, blue: 248/255)
-                .opacity(showProfile ? 0.10 : 0)
+                .opacity(modalVeilOpacity)
                 .frame(width: 320, height: 672)
                 .contentShape(Rectangle())
-                .allowsHitTesting(showProfile)
+                .allowsHitTesting(isModalPresented)
                 .onTapGesture {
-                    showProfile = false
+                    closePresentedSheet()
                 }
                 .animation(.easeOut(duration: 0.28), value: showProfile)
+                .animation(.easeOut(duration: 0.10), value: showAddUser)
                 .zIndex(20)
 
             // Keep the sheet mounted and animate its absolute y-position.
@@ -72,6 +87,21 @@ struct ContentView: View {
             .allowsHitTesting(showProfile)
             .animation(.easeOut(duration: 0.28), value: showProfile)
             .zIndex(21)
+
+            AddUserSheet(
+                isPresented: showAddUser,
+                landlineID: iroh.endpointId,
+                enteredID: $addUserID,
+                copied: copiedLandlineID,
+                onSubmit: submitAddUser,
+                onCopy: copyLandlineID,
+                onClose: closeAddUser
+            )
+            .frame(width: 320, height: 472)
+            .offset(x: 0, y: showAddUser ? 200 : 680)
+            .allowsHitTesting(showAddUser)
+            .animation(.easeOut(duration: 0.10), value: showAddUser)
+            .zIndex(22)
         }
         .frame(width: 320, height: 672)
         .clipped()
@@ -98,6 +128,7 @@ struct ContentView: View {
         }
         .onDisappear {
             networkPumpTask?.cancel()
+            addUserFeedbackTask?.cancel()
             iroh.stop()
         }
     }
@@ -144,7 +175,69 @@ struct ContentView: View {
 
 
 
+    private func closePresentedSheet() {
+        if showAddUser {
+            closeAddUser()
+        } else {
+            showProfile = false
+        }
+    }
+
+    private func openAddUser(remoteSlotIndex: Int) {
+        guard iroh.remoteSlots.indices.contains(remoteSlotIndex),
+              iroh.remoteSlots[remoteSlotIndex] == nil
+        else { return }
+
+        showProfile = false
+        addUserFeedbackTask?.cancel()
+        addUserFeedbackTask = nil
+        selectedAddSlotIndex = remoteSlotIndex
+        addUserID = ""
+        copiedLandlineID = false
+        hoveredEmptySlotIndex = nil
+        showAddUser = true
+    }
+
+    private func closeAddUser() {
+        addUserFeedbackTask?.cancel()
+        addUserFeedbackTask = nil
+        selectedAddSlotIndex = nil
+        addUserID = ""
+        copiedLandlineID = false
+        showAddUser = false
+    }
+
+    private func submitAddUser() {
+        let trimmedID = addUserID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let selectedAddSlotIndex, !trimmedID.isEmpty else { return }
+
+        iroh.connect(to: trimmedID, preferredSlotIndex: selectedAddSlotIndex)
+        closeAddUser()
+    }
+
+    private func copyLandlineID() {
+        let id = iroh.endpointId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { return }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(id, forType: .string)
+
+        copiedLandlineID = true
+        addUserFeedbackTask?.cancel()
+        addUserFeedbackTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(650))
+            guard !Task.isCancelled else { return }
+            selectedAddSlotIndex = nil
+            addUserID = ""
+            copiedLandlineID = false
+            showAddUser = false
+            addUserFeedbackTask = nil
+        }
+    }
+
     private func openProfile() {
+        closeAddUser()
         if hasProfile {
             draftProfileName = savedProfileName
             draftProfileAvatar = savedProfileAvatar
@@ -423,16 +516,19 @@ struct ContentView: View {
                     }
                     .offset(avatarOffset(index: index, count: 8, radius: 88))
                 } else {
-                    ContactAvatar(
-                        contact: Contact(
-                            name: "",
-                            avatarAsset: "",
-                            isOnline: false,
-                            isTalking: false
-                        ),
-                        suppressTalking: true,
-                        forceTalking: false,
-                        overrideImage: nil
+                    let remoteSlotIndex = index - 1
+                    EmptyAddSlot(
+                        isHovered: hoveredEmptySlotIndex == remoteSlotIndex,
+                        onHover: { hovering in
+                            if hovering {
+                                hoveredEmptySlotIndex = remoteSlotIndex
+                            } else if hoveredEmptySlotIndex == remoteSlotIndex {
+                                hoveredEmptySlotIndex = nil
+                            }
+                        },
+                        onTap: {
+                            openAddUser(remoteSlotIndex: remoteSlotIndex)
+                        }
                     )
                     .offset(avatarOffset(index: index, count: 8, radius: 88))
                 }
@@ -463,21 +559,34 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(LandlineColor.panel)
 
-            // Figma geometry is exact here: 18 × 18 at x=11, y=15.
-            // The status glyph is kept native for this pass; PTT artwork below
-            // uses the exact supplied Figma vectors.
-            Image(systemName: statusSystemImage)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(red: 217/255, green: 217/255, blue: 217/255))
-                .frame(width: 18, height: 18)
-                .offset(x: 11, y: 15)
+            if hoveredEmptySlotIndex != nil {
+                HStack(spacing: 4) {
+                    AddUserStatusIcon()
+                        .frame(width: 24, height: 24)
 
-            Text(statusText)
-                .font(.custom("Inter", size: 10).weight(.medium))
-                .foregroundStyle(Color(red: 217/255, green: 217/255, blue: 217/255))
-                .lineLimit(1)
-                .frame(width: 216, height: 48, alignment: .leading)
-                .offset(x: 37, y: 0)
+                    Text("Add someone to Landline")
+                        .font(.custom("Inter", size: 10).weight(.medium))
+                        .foregroundStyle(Color(red: 217/255, green: 217/255, blue: 217/255))
+                        .lineLimit(1)
+                }
+                .frame(width: 254, height: 48, alignment: .leading)
+                .offset(x: 9, y: 0)
+            } else {
+                // Figma geometry is exact here: 18 × 18 at x=11, y=15.
+                // The status glyph is kept native for the established PTT states.
+                Image(systemName: statusSystemImage)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(red: 217/255, green: 217/255, blue: 217/255))
+                    .frame(width: 18, height: 18)
+                    .offset(x: 11, y: 15)
+
+                Text(statusText)
+                    .font(.custom("Inter", size: 10).weight(.medium))
+                    .foregroundStyle(Color(red: 217/255, green: 217/255, blue: 217/255))
+                    .lineLimit(1)
+                    .frame(width: 216, height: 48, alignment: .leading)
+                    .offset(x: 37, y: 0)
+            }
         }
         .frame(width: 272, height: 48)
     }
@@ -626,7 +735,7 @@ struct ContentView: View {
         }
     }
 }
-
+\n\nprivate struct EmptyAddSlot: View {\n    let isHovered: Bool\n    let onHover: (Bool) -> Void\n    let onTap: () -> Void\n\n    var body: some View {\n        Button(action: onTap) {\n            ZStack {\n                Circle()\n                    .fill(Color(red: 11/255, green: 11/255, blue: 11/255))\n                    .frame(width: 56, height: 56)\n\n                ZStack {\n                    Capsule(style: .continuous)\n                        .fill(Color(red: 50/255, green: 50/255, blue: 50/255))\n                        .frame(width: 3, height: 18)\n\n                    Capsule(style: .continuous)\n                        .fill(Color(red: 50/255, green: 50/255, blue: 50/255))\n                        .frame(width: 18, height: 3)\n                }\n                .opacity(isHovered ? 1 : 0)\n            }\n            .frame(width: 56, height: 56)\n            .scaleEffect(isHovered ? 1.0 : 48.0 / 56.0)\n            .animation(.easeOut(duration: 0.10), value: isHovered)\n            .contentShape(Circle())\n        }\n        .buttonStyle(.plain)\n        .frame(width: 56, height: 56)\n        .contentShape(Circle())\n        .onHover(perform: onHover)\n        .accessibilityLabel("Add someone to Landline")\n    }\n}\n\nprivate struct AddUserStatusIcon: View {\n    var body: some View {\n        Canvas { context, _ in\n            let strokeColor = Color(red: 217/255, green: 217/255, blue: 217/255)\n            let strokeStyle = StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)\n\n            var path = Path()\n            path.addEllipse(in: CGRect(x: 11.5, y: 11.5, width: 8, height: 8))\n            path.move(to: CGPoint(x: 15.5, y: 13.5))\n            path.addLine(to: CGPoint(x: 15.5, y: 17.5))\n            path.move(to: CGPoint(x: 13.5, y: 15.5))\n            path.addLine(to: CGPoint(x: 17.5, y: 15.5))\n\n            path.move(to: CGPoint(x: 4.5, y: 15.4999))\n            path.addCurve(\n                to: CGPoint(x: 5.03804, y: 13.3687),\n                control1: CGPoint(x: 4.50051, y: 14.7560),\n                control2: CGPoint(x: 4.68536, y: 14.0238)\n            )\n            path.addCurve(\n                to: CGPoint(x: 6.52099, y: 11.7463),\n                control1: CGPoint(x: 5.39071, y: 12.7137),\n                control2: CGPoint(x: 5.90022, y: 12.1563)\n            )\n            path.addCurve(\n                to: CGPoint(x: 8.59536, y: 11.0194),\n                control1: CGPoint(x: 7.14177, y: 11.3363),\n                control2: CGPoint(x: 7.85447, y: 11.0866)\n            )\n            path.addCurve(\n                to: CGPoint(x: 10.7667, y: 11.3612),\n                control1: CGPoint(x: 9.33626, y: 10.9522),\n                control2: CGPoint(x: 10.0823, y: 11.0696)\n            )\n            path.addEllipse(in: CGRect(x: 6.25, y: 4.5, width: 5.5, height: 5.5))\n\n            context.stroke(path, with: .color(strokeColor), style: strokeStyle)\n        }\n        .frame(width: 24, height: 24)\n        .allowsHitTesting(false)\n    }\n}\n\nprivate struct AddUserSheet: View {\n    let isPresented: Bool\n    let landlineID: String\n    @Binding var enteredID: String\n    let copied: Bool\n    let onSubmit: () -> Void\n    let onCopy: () -> Void\n    let onClose: () -> Void\n\n    @State private var closeHovered = false\n    @FocusState private var inputFocused: Bool\n\n    private var displayedLandlineID: String {\n        landlineID.isEmpty ? "Starting Iroh…" : landlineID\n    }\n\n    var body: some View {\n        ZStack(alignment: .topLeading) {\n            RoundedRectangle(cornerRadius: 16, style: .continuous)\n                .fill(Color.white.opacity(0.95))\n\n            Button(action: onClose) {\n                ZStack {\n                    RoundedRectangle(cornerRadius: 10, style: .continuous)\n                        .fill(closeHovered ? Color.black.opacity(0.035) : .clear)\n\n                    Image(systemName: "xmark")\n                        .font(.system(size: 14, weight: .semibold))\n                        .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))\n                }\n                .frame(width: 32, height: 32)\n                .contentShape(Rectangle())\n            }\n            .buttonStyle(.plain)\n            .scaleEffect(closeHovered ? 1.05 : 1.0)\n            .animation(.easeOut(duration: 0.10), value: closeHovered)\n            .offset(x: 280, y: 8)\n            .onHover { closeHovered = $0 }\n\n            RoundedRectangle(cornerRadius: 12, style: .continuous)\n                .fill(Color(red: 243/255, green: 243/255, blue: 243/255))\n                .frame(width: 272, height: 168)\n                .offset(x: 24, y: 40)\n\n            Text("Add someone")\n                .font(.custom("Inter Tight", size: 16).weight(.semibold))\n                .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))\n                .frame(width: 240, height: 20, alignment: .leading)\n                .offset(x: 40, y: 56)\n\n            Text("Enter a Landline ID")\n                .font(.custom("Inter Tight", size: 14).weight(.medium))\n                .foregroundStyle(Color(red: 158/255, green: 163/255, blue: 158/255))\n                .frame(width: 240, height: 18, alignment: .leading)\n                .offset(x: 40, y: 122)\n\n            ZStack(alignment: .leading) {\n                RoundedRectangle(cornerRadius: 12, style: .continuous)\n                    .fill(Color(red: 235/255, green: 235/255, blue: 235/255))\n\n                TextField(\n                    "",\n                    text: $enteredID,\n                    prompt: Text("horse-window-apple-tv-consume-wall")\n                        .foregroundStyle(Color(red: 205/255, green: 209/255, blue: 205/255))\n                )\n                .textFieldStyle(.plain)\n                .font(.custom("Inter Tight", size: 12).weight(.medium))\n                .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))\n                .padding(.horizontal, 8)\n                .focused($inputFocused)\n                .onSubmit(onSubmit)\n            }\n            .frame(width: 256, height: 48)\n            .offset(x: 32, y: 152)\n\n            RoundedRectangle(cornerRadius: 12, style: .continuous)\n                .fill(Color(red: 243/255, green: 243/255, blue: 243/255))\n                .frame(width: 272, height: 224)\n                .offset(x: 24, y: 232)\n\n            Text("Invite someone")\n                .font(.custom("Inter Tight", size: 16).weight(.semibold))\n                .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))\n                .frame(width: 240, height: 20, alignment: .leading)\n                .offset(x: 40, y: 248)\n\n            Text("Your Landline ID")\n                .font(.custom("Inter Tight", size: 14).weight(.medium))\n                .foregroundStyle(Color(red: 158/255, green: 163/255, blue: 158/255))\n                .frame(width: 240, height: 18, alignment: .leading)\n                .offset(x: 40, y: 314)\n\n            Text(displayedLandlineID)\n                .font(.custom("Inter Tight", size: 12).weight(.medium))\n                .foregroundStyle(Color(red: 23/255, green: 23/255, blue: 23/255))\n                .lineLimit(1)\n                .truncationMode(.middle)\n                .padding(.horizontal, 16)\n                .frame(width: 256, height: 48, alignment: .leading)\n                .background(\n                    RoundedRectangle(cornerRadius: 12, style: .continuous)\n                        .fill(Color(red: 235/255, green: 235/255, blue: 235/255))\n                )\n                .offset(x: 32, y: 344)\n\n            Button(action: onCopy) {\n                Text(copied ? "Copied" : "Copy Landline ID")\n                    .font(.custom("Inter Tight", size: 14).weight(.semibold))\n                    .foregroundStyle(Color(red: 235/255, green: 235/255, blue: 235/255))\n                    .frame(width: 256, height: 48)\n                    .background(\n                        RoundedRectangle(cornerRadius: 16, style: .continuous)\n                            .fill(Color(red: 23/255, green: 23/255, blue: 23/255))\n                    )\n            }\n            .buttonStyle(.plain)\n            .offset(x: 32, y: 400)\n        }\n        .frame(width: 320, height: 472)\n        .onChange(of: isPresented) { _, presented in\n            if presented {\n                Task { @MainActor in\n                    try? await Task.sleep(for: .milliseconds(110))\n                    guard isPresented else { return }\n                    inputFocused = true\n                }\n            } else {\n                inputFocused = false\n            }\n        }\n        .onExitCommand(perform: onClose)\n    }\n}\n
 
 private struct RadioDisplay: View {
     var body: some View {

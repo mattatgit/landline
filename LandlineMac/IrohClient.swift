@@ -66,6 +66,7 @@ final class IrohClient: ObservableObject {
     private var avatarKind = "default"
     private var avatarDataBase64: String?
     private var connectedPeerID: String?
+    private var preferredRemoteSlotIndex: Int?
     private let playback = RemoteAudioPlayback()
 
     var isConnected: Bool { connectionState == .connected }
@@ -146,7 +147,7 @@ final class IrohClient: ObservableObject {
         }
     }
 
-    func connect(to rawEndpointId: String) {
+    func connect(to rawEndpointId: String, preferredSlotIndex: Int? = nil) {
         guard let endpoint else {
             lastError = "Iroh endpoint is not ready yet."
             return
@@ -155,7 +156,12 @@ final class IrohClient: ObservableObject {
         let trimmed = rawEndpointId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        let preferredSlot = preferredSlotIndex.flatMap { index in
+            remoteSlots.indices.contains(index) ? index : nil
+        }
+
         disconnect(clearError: false)
+        preferredRemoteSlotIndex = preferredSlot
         connectionState = .connecting
         lastError = nil
         connectedPeerID = trimmed
@@ -272,6 +278,7 @@ final class IrohClient: ObservableObject {
         connection = nil
         connectionState = .disconnected
         connectedPeerID = nil
+        preferredRemoteSlotIndex = nil
         localTransmitGranted = false
         remoteSpeakerID = nil
         remoteSpeakerName = nil
@@ -507,10 +514,21 @@ final class IrohClient: ObservableObject {
     private func insertOrUpdateRemote(_ participant: RemoteParticipant) {
         if let index = remoteSlots.firstIndex(where: { $0?.id == participant.id }) {
             remoteSlots[index] = participant
+            preferredRemoteSlotIndex = nil
             return
         }
+
+        if let preferredRemoteSlotIndex,
+           remoteSlots.indices.contains(preferredRemoteSlotIndex),
+           remoteSlots[preferredRemoteSlotIndex] == nil {
+            remoteSlots[preferredRemoteSlotIndex] = participant
+            self.preferredRemoteSlotIndex = nil
+            return
+        }
+
         if let emptyIndex = remoteSlots.firstIndex(where: { $0 == nil }) {
             remoteSlots[emptyIndex] = participant
+            preferredRemoteSlotIndex = nil
         }
     }
 
