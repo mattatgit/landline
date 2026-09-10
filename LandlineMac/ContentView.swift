@@ -38,6 +38,12 @@ struct ContentView: View {
     private var isTalking: Bool { micState == .talking }
     private var isModalPresented: Bool { showProfile || showAddUser }
 
+    // Match the two sheets by travel speed rather than raw duration.
+    // Profile travels 672 pt in 0.28 s; Add User travels 480 pt in 0.20 s.
+    // Both therefore move at approximately 2400 pt/s.
+    private let profileSheetAnimationDuration = 0.28
+    private let addUserSheetAnimationDuration = 0.20
+
     private var modalVeilOpacity: Double {
         if showProfile { return 0.10 }
         if showAddUser { return 0.06 }
@@ -54,10 +60,13 @@ struct ContentView: View {
 
             ModalBackdropBlurView()
                 .frame(width: 320, height: 672)
-                .opacity(isModalPresented ? 0.62 : 0)
+                // The pre-polish treatment targeted a 25 pt blur. Keep the
+                // edge-safe backdrop implementation, but blend it at 75% to
+                // approximate that treatment at roughly 25% less strength.
+                .opacity(isModalPresented ? 0.75 : 0)
                 .allowsHitTesting(false)
-                .animation(.easeOut(duration: 0.28), value: showProfile)
-                .animation(.easeOut(duration: 0.10), value: showAddUser)
+                .animation(.easeOut(duration: profileSheetAnimationDuration), value: showProfile)
+                .animation(.easeOut(duration: addUserSheetAnimationDuration), value: showAddUser)
                 .zIndex(19)
 
             // Window/Glass also carries a subtle 10% #F8F8F8 veil. Besides
@@ -71,8 +80,8 @@ struct ContentView: View {
                 .onTapGesture {
                     closePresentedSheet()
                 }
-                .animation(.easeOut(duration: 0.28), value: showProfile)
-                .animation(.easeOut(duration: 0.10), value: showAddUser)
+                .animation(.easeOut(duration: profileSheetAnimationDuration), value: showProfile)
+                .animation(.easeOut(duration: addUserSheetAnimationDuration), value: showAddUser)
                 .zIndex(20)
 
             // Keep the sheet mounted and animate its absolute y-position.
@@ -91,7 +100,7 @@ struct ContentView: View {
             .frame(width: 320, height: 584)
             .offset(x: 0, y: showProfile ? 88 : 760)
             .allowsHitTesting(showProfile)
-            .animation(.easeOut(duration: 0.28), value: showProfile)
+            .animation(.easeOut(duration: profileSheetAnimationDuration), value: showProfile)
             .zIndex(21)
 
             AddUserSheet(
@@ -106,7 +115,7 @@ struct ContentView: View {
             .frame(width: 320, height: 472)
             .offset(x: 0, y: showAddUser ? 200 : 680)
             .allowsHitTesting(showAddUser)
-            .animation(.easeOut(duration: 0.10), value: showAddUser)
+            .animation(.easeOut(duration: addUserSheetAnimationDuration), value: showAddUser)
             .zIndex(22)
         }
         .frame(width: 320, height: 672)
@@ -973,7 +982,7 @@ private struct AddUserSheet: View {
         .onChange(of: isPresented) { _, presented in
             if presented {
                 Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(110))
+                    try? await Task.sleep(for: .milliseconds(210))
                     guard isPresented else { return }
                     inputFocused = true
                 }
