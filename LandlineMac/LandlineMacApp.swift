@@ -95,7 +95,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         //    ├─ SwiftUI interface (transparent root)
         //    └─ native traffic-light host
         let root = LandlineVisualRootView(frame: NSRect(origin: .zero, size: designSize))
-        let hostingView = TransparentHostingView(rootView: ContentView(iroh: iroh))
+        let hostingView = TransparentHostingView(
+            rootView: ContentView(
+                iroh: iroh,
+                onModalPresentationChanged: { [weak self] isPresented in
+                    self?.trafficHost?.setModalPresentation(isPresented)
+                }
+            )
+        )
         hostingView.frame = root.bounds
         hostingView.autoresizingMask = [.width, .height]
         root.installHostingView(hostingView)
@@ -252,9 +259,13 @@ private final class LandlineVisualRootView: NSView {
         effectView.state = .active
         effectView.isEmphasized = false
         effectView.alphaValue = effectOpacity
-        // Let the real NSWindow own the outer rounded clipping. The previous
-        // per-view bitmap mask introduced a faint antialiased grey fringe that
-        // read as an explicit window stroke.
+        // Match the canonical browser shell radius without layer-flattening the
+        // parent view around the behind-window effect. A continuous layer clip
+        // on the effect itself leaves the proven window hierarchy unchanged.
+        effectView.wantsLayer = true
+        effectView.layer?.cornerRadius = 24
+        effectView.layer?.cornerCurve = .continuous
+        effectView.layer?.masksToBounds = true
         addSubview(effectView)
 
         // The under-window material remains dominant enough to soften detail, while
@@ -299,6 +310,17 @@ private final class TrafficLightHostView: NSView {
 
     override var isOpaque: Bool { false }
     override var isFlipped: Bool { true }
+
+    func setModalPresentation(_ isPresented: Bool) {
+        // Keep the proven native controls installed and clickable. Only their
+        // pixels are suppressed while SwiftUI displays a blurred proxy beneath.
+        let visualAlpha: CGFloat = isPresented ? 0 : 1
+        buttons.forEach { $0.alphaValue = visualAlpha }
+        hoverOverlay.alphaValue = visualAlpha
+        if isPresented {
+            hoverOverlay.isHovering = false
+        }
+    }
 
     func installHoverOverlay() {
         hoverOverlay.removeFromSuperview()

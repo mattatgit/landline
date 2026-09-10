@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @ObservedObject var iroh: IrohClient
+    var onModalPresentationChanged: (Bool) -> Void = { _ in }
     @State private var micState: MicState = .muted
     @State private var volume: Double = 0.25
     @State private var hoveredPTT = false
@@ -46,11 +47,11 @@ struct ContentView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             // Figma "Window/Glass" treatment used behind the profile sheet:
-            // the complete main interface is softened by a 25 pt blur while
+            // the complete main interface is softened by an 18 pt SwiftUI blur while
             // the sheet remains crisp above it. This mirrors the Settings view
             // frames where Window/Glass uses backdrop-blur 25 px.
             mainInterface
-                .blur(radius: isModalPresented ? 25 : 0)
+                .blur(radius: isModalPresented ? 18 : 0)
                 .animation(.easeOut(duration: 0.28), value: showProfile)
                 .animation(.easeOut(duration: 0.10), value: showAddUser)
 
@@ -109,6 +110,7 @@ struct ContentView: View {
         // should treat every edge as design space rather than reserving title-bar
         // or content-layout safe areas.
         .ignoresSafeArea()
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .task {
             // Restore the local profile before starting the Iroh endpoint so
             // peers immediately receive the persisted name/avatar in `hello`.
@@ -125,6 +127,9 @@ struct ContentView: View {
         }
         .onChange(of: volume) { _, newValue in
             iroh.setOutputVolume(newValue)
+        }
+        .onChange(of: isModalPresented) { _, presented in
+            onModalPresentationChanged(presented)
         }
         .onChange(of: iroh.localTransmitGranted) { _, granted in
             // In a near-simultaneous group PTT collision, IrohClient uses a
@@ -143,12 +148,13 @@ struct ContentView: View {
         .onDisappear {
             networkPumpTask?.cancel()
             addUserFeedbackTask?.cancel()
+            onModalPresentationChanged(false)
             iroh.stop()
         }
     }
 
     /// The complete interface below the modal glass/sheet. Keeping this in a
-    /// single compositing subtree means the 25 pt sheet-open blur is applied
+    /// single compositing subtree means the 18 pt sheet-open blur is applied
     /// consistently to the header, avatar dial, status, volume and VU panels.
     private var mainInterface: some View {
         ZStack(alignment: .topLeading) {
@@ -461,9 +467,18 @@ struct ContentView: View {
             // The actual AppKit traffic lights remain in their native title-bar
             // hierarchy and are positioned by AppDelegate. SwiftUI draws only
             // the 64 × 24 Figma backing plate, so there is no competing hit box.
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.black.opacity(0.20))
-                .frame(width: 64, height: 24)
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.black.opacity(0.20))
+
+                // The real AppKit traffic lights are visually suppressed while
+                // a sheet is open. This exact-position proxy then receives the
+                // same SwiftUI blur as the rest of the main interface without
+                // disturbing the proven caller-owned native button hierarchy.
+                TrafficLightModalProxy()
+                    .opacity(isModalPresented ? 1 : 0)
+            }
+            .frame(width: 64, height: 24)
                 .allowsHitTesting(false)
 
             RadioDisplay()
@@ -472,7 +487,7 @@ struct ContentView: View {
             Button {
                 openProfile()
             } label: {
-                BundledImage(name: "profile_icon", extension: "png")
+                ProfileButtonArtwork()
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }
@@ -488,7 +503,7 @@ struct ContentView: View {
     private var radioArea: some View {
         ZStack {
             Circle()
-                .fill(LandlineColor.panel)
+                .fill(LandlineColor.dial)
                 .frame(width: 272, height: 272)
 
             // Eight fixed positions. Position 0 is always this Mac; remote
@@ -973,6 +988,117 @@ private struct RadioDisplay: View {
         // It is bundled as vector PDF so AppKit renders it crisply at Retina scale.
         BundledImage(name: "landline_title", extension: "pdf")
             .frame(width: 152, height: 24)
+    }
+}
+
+private struct TrafficLightModalProxy: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            trafficCircle(red: 255, green: 94, blue: 87)
+            trafficCircle(red: 255, green: 189, blue: 46)
+            trafficCircle(red: 40, green: 200, blue: 64)
+        }
+        .frame(width: 52, height: 12)
+    }
+
+    private func trafficCircle(red: Double, green: Double, blue: Double) -> some View {
+        Circle()
+            .fill(Color(red: red / 255, green: green / 255, blue: blue / 255))
+            .overlay(Circle().stroke(Color.black.opacity(0.12), lineWidth: 0.5))
+            .frame(width: 12, height: 12)
+    }
+}
+
+/// Vector recreation of the canonical V22 profile-icon.svg. Keeping the
+/// original 12 × 13 path geometry avoids scaling a bitmap on Retina Macs.
+private struct ProfileButtonArtwork: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(LandlineColor.dial)
+
+            ProfileGlyph()
+                .frame(width: 12, height: 13)
+        }
+    }
+}
+
+private struct ProfileGlyph: View {
+    var body: some View {
+        Canvas { context, _ in
+            var path = Path()
+
+            path.addEllipse(in: CGRect(x: 3.375, y: 0.5, width: 5.25, height: 5.25))
+
+            path.move(to: CGPoint(x: 3.73804, y: 1.79199))
+            path.addCurve(
+                to: CGPoint(x: 5.17073, y: 2.77810),
+                control1: CGPoint(x: 4.14445, y: 2.21367),
+                control2: CGPoint(x: 4.63172, y: 2.54906)
+            )
+            path.addCurve(
+                to: CGPoint(x: 6.87504, y: 3.12499),
+                control1: CGPoint(x: 5.70973, y: 3.00713),
+                control2: CGPoint(x: 6.28939, y: 3.12512)
+            )
+            path.addCurve(
+                to: CGPoint(x: 8.60004, y: 2.76949),
+                control1: CGPoint(x: 7.46825, y: 3.12523),
+                control2: CGPoint(x: 8.05525, y: 3.00425)
+            )
+
+            path.move(to: CGPoint(x: 1.125, y: 11.75))
+            path.addCurve(
+                to: CGPoint(x: 2.55285, y: 8.30285),
+                control1: CGPoint(x: 1.125, y: 10.4571),
+                control2: CGPoint(x: 1.63861, y: 9.21709)
+            )
+            path.addCurve(
+                to: CGPoint(x: 6.0, y: 6.875),
+                control1: CGPoint(x: 3.46709, y: 7.38861),
+                control2: CGPoint(x: 4.70707, y: 6.875)
+            )
+            path.addCurve(
+                to: CGPoint(x: 9.44715, y: 8.30285),
+                control1: CGPoint(x: 7.29293, y: 6.875),
+                control2: CGPoint(x: 8.53291, y: 7.38861)
+            )
+            path.addCurve(
+                to: CGPoint(x: 10.875, y: 11.75),
+                control1: CGPoint(x: 10.3614, y: 9.21709),
+                control2: CGPoint(x: 10.875, y: 10.4571)
+            )
+
+            path.move(to: CGPoint(x: 4.125, y: 7.24951))
+            path.addLine(to: CGPoint(x: 4.125, y: 7.62501))
+            path.addCurve(
+                to: CGPoint(x: 4.67417, y: 8.95084),
+                control1: CGPoint(x: 4.125, y: 8.12229),
+                control2: CGPoint(x: 4.32254, y: 8.59921)
+            )
+            path.addCurve(
+                to: CGPoint(x: 6.0, y: 9.50001),
+                control1: CGPoint(x: 5.02581, y: 9.30247),
+                control2: CGPoint(x: 5.50272, y: 9.50001)
+            )
+            path.addCurve(
+                to: CGPoint(x: 7.32583, y: 8.95084),
+                control1: CGPoint(x: 6.49728, y: 9.50001),
+                control2: CGPoint(x: 6.97419, y: 9.30247)
+            )
+            path.addCurve(
+                to: CGPoint(x: 7.875, y: 7.62501),
+                control1: CGPoint(x: 7.67746, y: 8.59921),
+                control2: CGPoint(x: 7.875, y: 8.12229)
+            )
+            path.addLine(to: CGPoint(x: 7.875, y: 7.24951))
+
+            context.stroke(
+                path,
+                with: .color(.white),
+                style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
+            )
+        }
     }
 }
 

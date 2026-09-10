@@ -17,6 +17,7 @@ enum LandlineColor {
     static let windowBase = Color(red: 171.0 / 255.0, green: 171.0 / 255.0, blue: 171.0 / 255.0)
     static let windowTint = windowBase.opacity(0.60)
 
+    static let dial = Color(red: 29.0 / 255.0, green: 30.0 / 255.0, blue: 29.0 / 255.0) // #1D1E1D
     static let panel = Color(red: 0.08, green: 0.085, blue: 0.083)
     static let panelSoft = Color(red: 0.13, green: 0.135, blue: 0.132)
     static let inactive = Color(red: 0.47, green: 0.49, blue: 0.47)
