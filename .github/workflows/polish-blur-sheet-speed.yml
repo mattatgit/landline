@@ -1,0 +1,69 @@
+name: Polish macOS blur and sheet speed
+
+'on':
+  push:
+    branches:
+      - feature/macos-ui-polish
+    paths:
+      - .github/workflows/polish-blur-sheet-speed.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-build-package:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/macos-ui-polish
+
+      - name: Apply blur and sheet speed polish
+        run: python3 .github/scripts/apply_blur_and_sheet_speed.py
+
+      - name: Verify patch formatting
+        run: git diff --check
+
+      - name: Build Apple Silicon Release app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project LandlineMac.xcodeproj \
+            -scheme LandlineMac \
+            -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath "$RUNNER_TEMP/LandlineDerivedData" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Sign and package test build
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/LandlineDerivedData/Build/Products/Release/LandlineMac.app"
+          test -d "$APP"
+          file "$APP/Contents/MacOS/LandlineMac" | grep -q 'arm64'
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/LandlineMac-UI-Polish-BlurSheetSpeed-Test-2026-09-10.zip"
+          mkdir "$RUNNER_TEMP/verify"
+          ditto -x -k "$RUNNER_TEMP/LandlineMac-UI-Polish-BlurSheetSpeed-Test-2026-09-10.zip" "$RUNNER_TEMP/verify"
+          codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/verify/LandlineMac.app"
+
+      - name: Commit polish
+        run: |
+          git config user.name "Matt Innes"
+          git config user.email "matt@idealogue.io"
+          git add LandlineMac/ContentView.swift
+          git diff --cached --check
+          git commit -m "Tune modal blur and sheet travel speed"
+          git push origin HEAD:feature/macos-ui-polish
+
+      - name: Upload test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: LandlineMac-UI-Polish-BlurSheetSpeed-Test-2026-09-10
+          path: ${{ runner.temp }}/LandlineMac-UI-Polish-BlurSheetSpeed-Test-2026-09-10.zip
+          if-no-files-found: error
+          retention-days: 14
