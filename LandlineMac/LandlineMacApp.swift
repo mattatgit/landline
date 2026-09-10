@@ -229,16 +229,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 }
 
-/// The real window background stack. The wrapper deliberately stays *non*
-/// layer-backed: layer-flattening a parent around a behind-window visual effect
-/// can substantially reduce the visible backdrop contribution. The effect is
-/// masked directly instead, while SwiftUI remains a fully opaque sibling above
-/// the glass stack.
+/// The real window background stack. The native visual effect itself remains
+/// completely unmasked so WindowServer can render its backdrop blur all the way
+/// to every straight window edge. The 24 pt shell is clipped only by this parent
+/// after its children have composited, avoiding the inset blur band introduced
+/// when the effect view was masked directly.
 private final class LandlineVisualRootView: NSView {
     let effectView: NSVisualEffectView
     private let tintView: NSView
-    private let effectMaskLayer = CALayer()
-    private let effectOverscan: CGFloat = 24
 
     // Keep most of the native visual effect strength so the blur remains clear,
     // but allow a little more direct backdrop contribution than v4. The custom
@@ -253,23 +251,20 @@ private final class LandlineVisualRootView: NSView {
         tintView = NSView(frame: NSRect(origin: .zero, size: frameRect.size))
         super.init(frame: frameRect)
 
-        // Do not make this wrapper layer-backed and do not clip it. Instead,
-        // overscan the visual effect beyond the visible window and mask the
-        // composited result back to the canonical 24 pt shell. This gives the
-        // blur kernel real sampling area outside the visible boundary, avoiding
-        // the inset/faded blur edge caused by masksToBounds on the effect itself.
-        effectView.autoresizingMask = []
+        // Clip the completed Landline stack rather than the blur source itself.
+        // The effect therefore has no internal edge to fade toward, but the final
+        // window still matches the canonical V22 24 pt corner radius.
+        wantsLayer = true
+        layer?.cornerRadius = 24
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
+
+        effectView.autoresizingMask = [.width, .height]
         effectView.material = .underWindowBackground
         effectView.blendingMode = .behindWindow
         effectView.state = .active
         effectView.isEmphasized = false
         effectView.alphaValue = effectOpacity
-        effectView.wantsLayer = true
-
-        effectMaskLayer.backgroundColor = NSColor.black.cgColor
-        effectMaskLayer.cornerRadius = 24
-        effectMaskLayer.cornerCurve = .continuous
-        effectView.layer?.mask = effectMaskLayer
         addSubview(effectView)
 
         // The under-window material remains dominant enough to soften detail, while
@@ -292,26 +287,6 @@ private final class LandlineVisualRootView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layout() {
-        super.layout()
-
-        // The visual effect renders 24 pt beyond each window edge, while its
-        // layer mask exposes only the actual 320 × 672 rounded Landline shell.
-        // Keeping the mask inset inside the oversized effect prevents the blur
-        // kernel from fading toward transparent pixels at the visible boundary.
-        effectView.frame = bounds.insetBy(dx: -effectOverscan, dy: -effectOverscan)
-        effectMaskLayer.frame = NSRect(
-            x: effectOverscan,
-            y: effectOverscan,
-            width: bounds.width,
-            height: bounds.height
-        )
-
-        // The tint remains exactly window-sized; it supplies the visible 24 pt
-        // shell edge without limiting the backdrop blur's sampling area.
-        tintView.frame = bounds
     }
 
     func installHostingView<Content: View>(_ hostingView: NSHostingView<Content>) {
