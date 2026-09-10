@@ -46,14 +46,19 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // Figma "Window/Glass" treatment used behind the profile sheet:
-            // the complete main interface is softened by an 18 pt SwiftUI blur while
-            // the sheet remains crisp above it. This mirrors the Settings view
-            // frames where Window/Glass uses backdrop-blur 25 px.
+            // Keep the main interface geometrically unchanged. Sheet-open blur is
+            // supplied by an edge-to-edge within-window backdrop layer below rather
+            // than SwiftUI's bounded Gaussian blur, which faded inward at the
+            // 320 × 672 render boundary.
             mainInterface
-                .blur(radius: isModalPresented ? 18 : 0)
+
+            ModalBackdropBlurView()
+                .frame(width: 320, height: 672)
+                .opacity(isModalPresented ? 0.62 : 0)
+                .allowsHitTesting(false)
                 .animation(.easeOut(duration: 0.28), value: showProfile)
                 .animation(.easeOut(duration: 0.10), value: showAddUser)
+                .zIndex(19)
 
             // Window/Glass also carries a subtle 10% #F8F8F8 veil. Besides
             // matching the Figma treatment, this view provides the modal hit
@@ -153,9 +158,9 @@ struct ContentView: View {
         }
     }
 
-    /// The complete interface below the modal glass/sheet. Keeping this in a
-    /// single compositing subtree means the 18 pt sheet-open blur is applied
-    /// consistently to the header, avatar dial, status, volume and VU panels.
+    /// The complete interface below the modal glass/sheet. Sheet-open softening
+    /// is applied by ModalBackdropBlurView above this subtree so the blur reaches
+    /// every window edge without changing the fixed Figma geometry.
     private var mainInterface: some View {
         ZStack(alignment: .topLeading) {
             // The actual Window/Glass surface now lives in AppKit beneath
@@ -988,6 +993,26 @@ private struct RadioDisplay: View {
         // It is bundled as vector PDF so AppKit renders it crisply at Retina scale.
         BundledImage(name: "landline_title", extension: "pdf")
             .frame(width: 152, height: 24)
+    }
+}
+
+/// Browser-style backdrop blur for modal/sheet presentation. Unlike SwiftUI's
+/// `.blur`, NSVisualEffectView with `.withinWindow` samples the already-rendered
+/// window behind this view instead of blurring a bounded offscreen bitmap.
+/// Keeping the view exactly 320 × 672 therefore avoids the 14 pt inset/fade that
+/// appeared at every edge of the previous sheet-open blur.
+private struct ModalBackdropBlurView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView(frame: .zero)
+        view.material = .underWindowBackground
+        view.blendingMode = .withinWindow
+        view.state = .active
+        view.isEmphasized = false
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.state = .active
     }
 }
 
