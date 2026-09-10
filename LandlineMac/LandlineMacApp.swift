@@ -569,6 +569,16 @@ private final class TrafficLightHoverOverlayView: NSView {
 private final class TransparentHostingView<Content: View>: NSHostingView<Content> {
     override var isOpaque: Bool { false }
 
+    // Landline uses a full-size-content NSWindow and treats the complete
+    // 320 × 672 frame as design space. AppKit still reports a title-bar safe
+    // area to NSHostingView by default, which can inset NSViewRepresentable
+    // children (notably the modal backdrop blur) by roughly 14 pt at the top.
+    // Report no safe-area insets so every full-window SwiftUI/AppKit overlay
+    // shares the exact same canvas as the root visual stack.
+    override var safeAreaInsets: NSEdgeInsets {
+        NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         wantsLayer = true
