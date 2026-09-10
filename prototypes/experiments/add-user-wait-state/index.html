@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LANDLINE — Add User wait-state prototype</title>
+  <style>
+    :root {
+      --onyx:#1d1e1d;
+      --night:#0b0b0b;
+      --charcoal:#323232;
+      --matcha:#17b239;
+      --ash:#777f78;
+      --pale:#d9d9d9;
+      --talk-red:#ff6459;
+      --shell:rgba(171,171,171,.60);
+      --text:#171717;
+      --cloud:#cdd1cd;
+      --dust:#ebebeb;
+      --wait-light:#1286b6;
+      --wait-dark:#096286;
+    }
+
+    * { box-sizing:border-box; }
+    html, body { min-height:100%; }
+    body {
+      margin:0;
+      background:#171717;
+      font-family:Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing:antialiased;
+    }
+    button, input { font:inherit; }
+    .stage {
+      min-height:100vh;
+      display:grid;
+      place-items:center;
+      padding:24px;
+    }
+    .landline {
+      width:320px;
+      height:672px;
+      position:relative;
+      overflow:hidden;
+      border-radius:24px;
+      background:var(--shell);
+      backdrop-filter:blur(7.5px);
+      -webkit-backdrop-filter:blur(7.5px);
+      box-shadow:0 0 25px rgba(0,0,0,.10);
+    }
+
+    .window-controls {
+      position:absolute;
+      left:24px; top:24px;
+      width:64px; height:24px;
+      display:grid; place-items:center;
+      border-radius:8px;
+      background:rgba(0,0,0,.20);
+    }
+    .window-controls img { width:52px; height:12px; display:block; }
+
+    .app-title {
+      position:absolute;
+      left:104px; top:24px;
+      width:152px; height:24px;
+      overflow:hidden;
+      border-radius:8px;
+      background:var(--onyx);
+    }
+    .app-title img { position:absolute; display:block; }
+    .title-speaker { width:18px; height:18px; top:3px; }
+    .title-speaker.left { left:8px; }
+    .title-speaker.right { right:8px; }
+    .title-bars { width:21px; height:10px; top:7px; }
+    .title-bars.left { left:27px; }
+    .title-bars.right { right:27px; }
+    .title-word { width:41px; height:11px; left:55.5px; top:6.5px; }
+
+    .profile {
+      position:absolute;
+      top:24px; left:272px;
+      width:24px; height:24px;
+      border:0; padding:0;
+      border-radius:8px;
+      background:var(--onyx);
+      display:grid; place-items:center;
+      cursor:default;
+    }
+    .profile img { width:12px; height:13px; display:block; }
+
+    .dial {
+      position:absolute;
+      left:24px; top:96px;
+      width:272px; height:272px;
+      border-radius:50%;
+      background:var(--onyx);
+    }
+    .contact {
+      position:absolute;
+      width:48px; height:48px;
+      border-radius:50%;
+    }
+    .contact > img.avatar,
+    .contact > img.existing-avatar {
+      display:block;
+      width:48px; height:48px;
+      object-fit:cover;
+      border-radius:50%;
+    }
+    .contact-self { width:56px; height:56px; padding:4px; background:transparent; }
+    .contact-self > img.existing-avatar { width:48px; height:48px; }
+    .offline { opacity:.30; }
+    .empty { background:var(--night); }
+
+    .pos-1 { left:108px; top:20px; }
+    .pos-2 { left:174.23px; top:49.77px; }
+    .pos-3 { left:196px; top:112px; }
+    .pos-4 { left:174.22px; top:174.23px; }
+    .pos-5 { left:112px; top:200px; }
+    .pos-6 { left:49.77px; top:174.22px; }
+    .pos-7 { left:24px; top:112px; }
+    .pos-8 { left:49.77px; top:49.77px; }
+
+    .add-slot {
+      appearance:none;
+      -webkit-appearance:none;
+      border:0;
+      padding:0;
+      cursor:pointer;
+      overflow:visible;
+      outline:none;
+    }
+    .empty-hover-art {
+      position:absolute;
+      left:50%; top:50%;
+      width:56px; height:56px;
+      max-width:none;
+      border-radius:50%;
+      object-fit:contain;
+      opacity:0;
+      pointer-events:none;
+      transform:translate(-50%,-50%) scale(.8571428571);
+      transform-origin:center center;
+      transition:transform 100ms ease-out, opacity 60ms linear;
+    }
+    .add-slot:hover .empty-hover-art,
+    .add-slot:focus-visible .empty-hover-art {
+      opacity:1;
+      transform:translate(-50%,-50%) scale(1);
+    }
+    .add-slot:hover,
+    .add-slot:focus-visible { background:transparent; }
+
+    /* Figma node 4171:55829: 48 px ellipse, 2 px linear-gradient stroke.
+       The whole gradient ring rotates; the slot itself stays fixed. */
+    .waiting-ring {
+      position:absolute;
+      inset:0;
+      width:48px; height:48px;
+      border-radius:50%;
+      background:linear-gradient(90deg,var(--wait-light) 0%,var(--wait-dark) 100%);
+      -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 2px));
+      mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 2px));
+      animation:waitSpin 900ms linear infinite;
+      pointer-events:none;
+    }
+    .waiting-user {
+      appearance:none;
+      -webkit-appearance:none;
+      border:0;
+      padding:0;
+      background:transparent;
+      cursor:default;
+    }
+    @keyframes waitSpin { to { transform:rotate(360deg); } }
+
+    .added-user {
+      appearance:none;
+      -webkit-appearance:none;
+      border:0;
+      padding:0;
+      background:transparent;
+      cursor:default;
+    }
+
+    .ptt-wrap {
+      position:absolute;
+      left:94px; top:94px;
+      width:84px; height:84px;
+      display:grid; place-items:center;
+    }
+    .ptt {
+      width:80px; height:80px;
+      padding:0; border:0;
+      border-radius:50%;
+      background:var(--talk-red);
+      display:grid; place-items:center;
+      cursor:pointer;
+      transform:scale(1);
+      transition:transform 150ms ease,background-color 90ms linear;
+    }
+    .ptt:hover { transform:scale(1.05); }
+    .ptt:active { transform:scale(1.05); background:var(--matcha); }
+    .ptt img { width:24px; height:24px; display:block; filter:none; }
+
+    .status, .volume, .vu {
+      position:absolute;
+      left:24px;
+      width:272px;
+      border-radius:16px;
+      background:var(--onyx);
+    }
+    .status {
+      top:408px;
+      height:48px;
+      display:flex;
+      align-items:center;
+      padding:0 12px;
+      gap:8px;
+      color:var(--pale);
+      font-size:10px;
+      font-weight:500;
+    }
+    .status-default { display:flex; align-items:center; gap:8px; }
+    .status-default img { width:18px; height:18px; filter:invert(1); opacity:.86; }
+    .status-add-row {
+      position:absolute;
+      inset:0;
+      display:none;
+      align-items:center;
+      padding-left:9px;
+      gap:4px;
+      pointer-events:none;
+    }
+    .status-add-row img { width:24px; height:24px; display:block; }
+    .landline:has(.add-slot:hover) .status-default,
+    .landline:has(.add-slot:focus-visible) .status-default { visibility:hidden; }
+    .landline:has(.add-slot:hover) .status-add-row,
+    .landline:has(.add-slot:focus-visible) .status-add-row { display:flex; }
+
+    .volume {
+      top:472px;
+      height:80px;
+      padding:0 24px;
+    }
+    .volume-row {
+      height:32px;
+      padding-top:6px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      color:#fff;
+      font-size:13px;
+      line-height:1;
+      font-weight:600;
+    }
+    .track {
+      position:absolute;
+      left:24px; top:40px;
+      width:224px; height:8px;
+      border-radius:8px;
+      background:#0b0b0b;
+      border:.5px solid var(--charcoal);
+    }
+    .track-fill {
+      width:53px; height:8px;
+      margin:-.5px 0 0 -.5px;
+      border-radius:8px 0 0 8px;
+      background:var(--matcha);
+    }
+    .knob {
+      position:absolute;
+      left:64px; top:32px;
+      width:24px; height:24px;
+      border-radius:50%;
+      background:#fff;
+      display:grid; place-items:center;
+    }
+    .knob::after {
+      content:"";
+      width:12px; height:12px;
+      border-radius:50%;
+      background:var(--matcha);
+    }
+
+    .vu {
+      top:568px;
+      height:80px;
+      padding:12px;
+    }
+    .vu-bars {
+      width:248px; height:56px;
+      display:grid;
+      grid-template-columns:repeat(16,8px);
+      gap:8px;
+    }
+    .vu-bars span {
+      display:block;
+      width:8px; height:56px;
+      border-radius:4px;
+      background:var(--ash);
+    }
+    .vu-bars span:nth-child(-n+6) { background:var(--matcha); }
+
+    .add-overlay {
+      position:absolute;
+      inset:0;
+      z-index:35;
+      pointer-events:none;
+    }
+    .add-overlay.is-open { pointer-events:auto; }
+    .add-glass {
+      position:absolute;
+      inset:0;
+      border:0;
+      padding:0;
+      background:rgba(248,248,248,.06);
+      backdrop-filter:blur(25px);
+      -webkit-backdrop-filter:blur(25px);
+      opacity:0;
+      transition:opacity 100ms ease-out;
+    }
+    .add-overlay.is-open .add-glass { opacity:1; }
+
+    /* New Add / Invite sheet from Figma node 4171:55888. */
+    .add-sheet {
+      position:absolute;
+      left:0; bottom:0;
+      width:320px; height:528px;
+      overflow:hidden;
+      border-radius:16px;
+      background:rgba(255,255,255,.95);
+      color:var(--text);
+      transform:translateY(528px);
+      transition:transform 100ms ease-out;
+      font-family:"Inter Tight",Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    }
+    .add-overlay.is-open .add-sheet { transform:translateY(0); }
+
+    .add-close {
+      position:absolute;
+      z-index:3;
+      right:8px; top:8px;
+      width:32px; height:32px;
+      padding:0;
+      border:0;
+      border-radius:10px;
+      background:transparent;
+      cursor:pointer;
+      display:grid; place-items:center;
+      transform:scale(1);
+      transition:transform 100ms ease-out,background-color 100ms ease-out;
+    }
+    .add-close:hover { transform:scale(1.05); background:rgba(0,0,0,.035); }
+    .add-close img { width:32px; height:32px; display:block; pointer-events:none; }
+
+    .sheet-heading {
+      position:absolute;
+      left:24px;
+      margin:0;
+      font-size:20px;
+      line-height:24px;
+      font-weight:600;
+      letter-spacing:-.15px;
+      color:var(--text);
+    }
+    .add-heading { top:40px; }
+    .invite-heading { top:312px; }
+
+    .field-label {
+      position:absolute;
+      left:24px;
+      font-size:14px;
+      line-height:18px;
+      font-weight:500;
+      color:var(--text);
+    }
+    .add-label { top:90px; }
+    .invite-label { top:362px; }
+
+    .id-input,
+    .id-display {
+      position:absolute;
+      left:24px;
+      width:272px; height:48px;
+      border-radius:16px;
+      background:#fff;
+      color:var(--text);
+      font-size:12px;
+      font-weight:500;
+    }
+    .id-input {
+      top:120px;
+      border:0;
+      outline:none;
+      padding:0 16px;
+      line-height:normal;
+      caret-color:var(--text);
+    }
+    .id-input::placeholder { color:var(--cloud); opacity:1; }
+    .id-input:focus { box-shadow:inset 0 0 0 1px rgba(23,23,23,.06); }
+    .id-display {
+      top:392px;
+      padding:0 16px;
+      display:flex;
+      align-items:center;
+      line-height:normal;
+      white-space:nowrap;
+    }
+
+    .primary-button {
+      position:absolute;
+      left:24px;
+      width:272px; height:48px;
+      border:0;
+      border-radius:16px;
+      background:var(--text);
+      color:var(--dust);
+      font-size:14px;
+      font-weight:600;
+      cursor:pointer;
+      transform:scale(1);
+      transition:transform 100ms ease-out,background-color 100ms linear,color 100ms linear;
+    }
+    .primary-button:not(:disabled):hover { transform:scale(1.01); }
+    .primary-button:disabled {
+      background:rgba(23,23,23,.20);
+      color:rgba(235,235,235,.50);
+      cursor:default;
+    }
+    .add-button { top:184px; }
+    .copy-button { top:456px; }
+
+    .divider {
+      position:absolute;
+      left:24px; top:272px;
+      width:272px; height:1px;
+      background:rgba(23,23,23,.08);
+    }
+
+    @media (prefers-reduced-motion:reduce) {
+      *, *::before, *::after {
+        animation-duration:.001ms !important;
+        animation-iteration-count:1 !important;
+        transition-duration:.001ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <section class="landline" aria-label="LANDLINE Add User wait-state prototype">
+      <div class="window-controls" aria-hidden="true">
+        <img src="../../app/assets/window-controls.svg" alt="">
+      </div>
+
+      <div class="app-title" aria-label="LANDLINE">
+        <img class="title-speaker left" src="../../app/assets/title-volume-left.svg" alt="">
+        <img class="title-bars left" src="../../app/assets/title-bars.svg" alt="">
+        <img class="title-word" src="../../app/assets/title-landline.svg" alt="LANDLINE">
+        <img class="title-bars right" src="../../app/assets/title-bars.svg" alt="">
+        <img class="title-speaker right" src="../../app/assets/title-volume-right.svg" alt="">
+      </div>
+
+      <button class="profile" type="button" aria-label="Profile">
+        <img src="../../app/assets/profile-icon.svg" alt="">
+      </button>
+
+      <div class="dial">
+        <div class="contact contact-self pos-1" title="You">
+          <img class="existing-avatar" src="../../app/assets/avatar-saori.png" alt="Your avatar">
+        </div>
+        <div class="contact offline pos-2" title="Offline">
+          <img class="existing-avatar" src="../../app/assets/avatar-micheal.png" alt="Offline contact">
+        </div>
+        <div class="contact pos-3" title="Stuart">
+          <img class="existing-avatar" src="../../app/assets/avatar-stuart.png" alt="Stuart">
+        </div>
+
+        <button class="contact empty add-slot pos-4" type="button" aria-label="Add someone to Landline" data-slot="4">
+          <img class="empty-hover-art" src="../../app/assets/hovered-slot.svg" alt="">
+        </button>
+        <button class="contact empty add-slot pos-5" type="button" aria-label="Add someone to Landline" data-slot="5">
+          <img class="empty-hover-art" src="../../app/assets/hovered-slot.svg" alt="">
+        </button>
+        <button class="contact empty add-slot pos-6" type="button" aria-label="Add someone to Landline" data-slot="6">
+          <img class="empty-hover-art" src="../../app/assets/hovered-slot.svg" alt="">
+        </button>
+        <button class="contact empty add-slot pos-7" type="button" aria-label="Add someone to Landline" data-slot="7">
+          <img class="empty-hover-art" src="../../app/assets/hovered-slot.svg" alt="">
+        </button>
+        <button class="contact empty add-slot pos-8" type="button" aria-label="Add someone to Landline" data-slot="8">
+          <img class="empty-hover-art" src="../../app/assets/hovered-slot.svg" alt="">
+        </button>
+
+        <div class="ptt-wrap">
+          <button class="ptt" type="button" aria-label="Push and hold to talk">
+            <img src="../../app/assets/mic-muted.svg" alt="Muted">
+          </button>
+        </div>
+      </div>
+
+      <div class="status" aria-live="polite">
+        <span class="status-default">
+          <img src="../../app/assets/mic-muted.svg" alt="">
+          <span>Click to talk</span>
+        </span>
+        <span class="status-add-row" aria-hidden="true">
+          <img src="../../app/assets/add-user.svg" alt="">
+          <span>Add someone to Landline</span>
+        </span>
+      </div>
+
+      <div class="volume">
+        <div class="volume-row"><span>Volume</span><span>25</span></div>
+        <div class="track"><div class="track-fill"></div></div>
+        <div class="knob"></div>
+      </div>
+
+      <div class="vu" aria-hidden="true">
+        <div class="vu-bars">
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+
+      <div class="add-overlay" id="add-overlay" aria-hidden="true">
+        <button class="add-glass" id="add-glass" type="button" aria-label="Close add someone sheet"></button>
+
+        <section class="add-sheet" aria-label="Add someone to Landline">
+          <button class="add-close" id="add-close" type="button" aria-label="Close">
+            <img src="../../app/assets/sheet-close.svg" alt="">
+          </button>
+
+          <h2 class="sheet-heading add-heading">Add someone</h2>
+          <label class="field-label add-label" for="landline-id-input">Enter a Landline ID</label>
+          <input class="id-input" id="landline-id-input" type="text"
+                 placeholder="horse-window-apple-tv-consume-wall"
+                 autocomplete="off" autocapitalize="none" spellcheck="false"
+                 aria-label="Enter a Landline ID">
+          <button class="primary-button add-button" id="add-to-landline" type="button" disabled>Add to Landline</button>
+
+          <div class="divider" aria-hidden="true"></div>
+
+          <h2 class="sheet-heading invite-heading">Invite someone</h2>
+          <div class="field-label invite-label">Your Landline ID</div>
+          <div class="id-display" id="your-landline-id">peak-bed-tiger-cloud-curtain-river</div>
+          <button class="primary-button copy-button" id="copy-landline-id" type="button">Copy Landline ID</button>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const overlay = document.getElementById('add-overlay');
+      const glass = document.getElementById('add-glass');
+      const close = document.getElementById('add-close');
+      const input = document.getElementById('landline-id-input');
+      const addButton = document.getElementById('add-to-landline');
+      const copyButton = document.getElementById('copy-landline-id');
+      const yourLandlineId = document.getElementById('your-landline-id');
+      const slots = [...document.querySelectorAll('.add-slot')];
+      let selectedSlot = null;
+      const waitTimers = new Map();
+
+      const setAddButtonState = () => {
+        addButton.disabled = input.value.trim().length === 0;
+      };
+
+      const openSheet = (slot) => {
+        selectedSlot = slot;
+        input.value = '';
+        setAddButtonState();
+        copyButton.textContent = 'Copy Landline ID';
+        overlay.classList.add('is-open');
+        overlay.setAttribute('aria-hidden', 'false');
+        window.setTimeout(() => input.focus(), 110);
+      };
+
+      const closeSheet = () => {
+        overlay.classList.remove('is-open');
+        overlay.setAttribute('aria-hidden', 'true');
+        input.blur();
+        selectedSlot = null;
+      };
+
+      const beginWaitState = () => {
+        const id = input.value.trim();
+        const slot = selectedSlot;
+        if (!id || !slot || addButton.disabled) return;
+
+        slot.classList.remove('empty','add-slot');
+        slot.classList.add('waiting-user');
+        slot.removeAttribute('data-slot');
+        slot.disabled = true;
+        slot.title = id;
+        slot.setAttribute('aria-label','Waiting for new Landline contact');
+        slot.innerHTML = '<span class="waiting-ring" aria-hidden="true"></span>';
+
+        // Closing the overlay starts the sheet's downward transform. The wait
+        // ring is already beneath it, so it becomes visible as the sheet clears.
+        closeSheet();
+
+        const timer = window.setTimeout(() => {
+          slot.classList.remove('waiting-user');
+          slot.classList.add('added-user');
+          slot.innerHTML = '<img class="avatar" src="../../app/assets/avatar-toyface.png" alt="New Landline contact">';
+          slot.setAttribute('aria-label','New Landline contact');
+          waitTimers.delete(slot);
+        }, 2200);
+        waitTimers.set(slot,timer);
+      };
+
+      slots.forEach((slot) => {
+        slot.addEventListener('click', () => {
+          if (!slot.classList.contains('add-slot')) return;
+          openSheet(slot);
+        });
+      });
+
+      glass.addEventListener('click', closeSheet);
+      close.addEventListener('click', closeSheet);
+      input.addEventListener('input', setAddButtonState);
+      addButton.addEventListener('click', beginWaitState);
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !addButton.disabled) {
+          event.preventDefault();
+          beginWaitState();
+        }
+      });
+
+      const copyText = async (text) => {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+        const helper = document.createElement('textarea');
+        helper.value = text;
+        helper.setAttribute('readonly','');
+        helper.style.position = 'fixed';
+        helper.style.opacity = '0';
+        document.body.appendChild(helper);
+        helper.select();
+        document.execCommand('copy');
+        helper.remove();
+      };
+
+      copyButton.addEventListener('click', async () => {
+        try { await copyText(yourLandlineId.textContent.trim()); } catch (_) {}
+        copyButton.textContent = 'Copied';
+        window.setTimeout(() => {
+          copyButton.textContent = 'Copy Landline ID';
+          closeSheet();
+        },650);
+      });
+
+      window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && overlay.classList.contains('is-open')) closeSheet();
+      });
+    })();
+  </script>
+</body>
+</html>
