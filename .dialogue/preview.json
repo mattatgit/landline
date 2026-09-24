@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "kind": "static",
+  "root": "prototypes/app",
+  "entry": "/",
+  "reload": "dialogue"
+}
